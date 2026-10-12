@@ -98,3 +98,5 @@ Connected to MySQL successfully!
 ### Team Notes
 
 The current configuration uses a local MySQL server at `localhost:3306`. If the team later switches to a shared MySQL server or another database system, update the connection configuration and any required JDBC dependencies accordingly.
+
+![Uploading Screenshot 2026-10-12 164346.png…]()
