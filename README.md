@@ -2,101 +2,87 @@
 
 ## MySQL Database Connection Setup
 
-Follow the instructions below to configure your local MySQL connection and run the Java application.
+Hướng dẫn các thành viên thiết lập môi trường và kết nối Java project với MySQL database trên Aiven.
 
-### Prerequisites
+## 1. Clone Project in IntelliJ IDEA
 
-Before running the application, make sure you have:
+Mọi người nên sử dụng **IntelliJ IDEA** để mở và chạy project.
 
-- Java JDK installed.
-- IntelliJ IDEA or another Java IDE.
-- MySQL Server installed and running.
-- The project cloned from this repository.
+1. Clone repository của nhóm về máy.
+2. Mở project vừa clone trong IntelliJ IDEA.
+3. Đọc file `application.properties.example` để biết cấu hình cần thiết.
+4. Sử dụng **username và password được cấp riêng qua Zalo**. Mỗi thành viên phải sử dụng đúng tài khoản được cấp cho mình.
 
-### Step 1: Check the Configuration Directory
+## 2. Configure the CA Certificate
 
-After cloning the repository, navigate to:
+Mọi người cần có file `ca.pem` và lưu tại vị trí phù hợp trên máy tính.
 
-`src/main/sources/`
+### Step 1: Open the IntelliJ Terminal
 
-If the `sources` directory already contains `application.properties.example`, **do not create another directory**. Use the existing directory.
+Mở Terminal trong IntelliJ IDEA và chạy:
 
-If the directory does not exist, create `sources` inside `src/main/`.
-
-### Step 2: Create `application.properties`
-
-Inside `src/main/sources/`, create a new file named:
-
-`application.properties`
-
-If the repository already contains `application.properties.example`, copy that file and rename the copy to `application.properties`.
-
-**Do not rename or delete `application.properties.example`.** It serves as a template for other team members.
-
-### Step 3: Configure Your MySQL Credentials
-
-Add the following configuration to `application.properties`:
-
-```properties
-db.url=jdbc:mysql://localhost:3306/online_examination
-db.username=your_mysql_username
-db.password=your_mysql_password
+```powershell
+keytool -help
 ```
 
-Replace `your_mysql_username` and `your_mysql_password` with your own MySQL username and password.
+Nếu lệnh hiển thị danh sách các tùy chọn của `keytool`, bạn có thể tiếp tục.
 
-For example, if your MySQL username is `root`:
+### Step 2: Import the CA Certificate
 
-```properties
-db.url=jdbc:mysql://localhost:3306/online_examination
-db.username=root
-db.password=your_actual_password
+Chạy lệnh sau trong Terminal. Thay đổi đường dẫn `ca.pem` nếu file của bạn nằm ở vị trí khác.
+
+```powershell
+keytool -importcert -trustcacerts `
+  -alias aiven-mysql-ca `
+  -file "D:\IU\PDMLAB\CA_CER\ca.pem" `
+  -keystore "D:\IU\PDMLAB\CA_CER\aiven-truststore.p12" `
+  -storetype PKCS12
 ```
 
-Do not include quotation marks around the values.
+- Khi được yêu cầu đặt mật khẩu cho truststore, hãy tạo mật khẩu và ghi nhớ nó.
+- Khi được hỏi có tin cậy chứng chỉ hay không, nhập `yes` rồi nhấn Enter.
+- Đảm bảo file `aiven-truststore.p12` được tạo thành công tại đường dẫn đã chỉ định.
 
-**Important:** Each team member should use their own local MySQL credentials. Do not share your password or commit `application.properties` to GitHub.
+**Lưu ý:** Đường dẫn trên chỉ là ví dụ theo máy hiện tại. Mỗi thành viên cần điều chỉnh đường dẫn theo vị trí lưu file của mình.
 
-### Step 4: Prepare the Database
+## 3. Configure `application.properties`
 
-Make sure the database `online_examination` exists on your MySQL server.
+1. Tạo file `application.properties` từ file mẫu `application.properties.example` theo cấu trúc project.
+2. Điền các thông tin kết nối được cấp.
+3. Cập nhật đường dẫn truststore và mật khẩu truststore tương ứng với máy của bạn.
 
-If it does not exist, create it using MySQL Workbench or another MySQL client:
+Không commit file `application.properties` chứa thông tin đăng nhập thật lên GitHub.
 
-```sql
-CREATE DATABASE online_examination;
-```
+## 4. Configure MySQL Workbench
 
-This creates an empty database. If the application requires tables, those tables must also be created using the team's agreed database schema or SQL script.
+Mở MySQL Workbench và chỉnh sửa thông tin kết nối theo hình ảnh được chia sẻ trong nhóm.
 
-### Step 5: Run the Application
+- **Hostname / Port:** Sử dụng thông tin endpoint của Aiven.
+- **Username / Password:** Sử dụng thông tin đăng nhập được cấp cho bạn.
+- **SSL:** Bật SSL theo cấu hình của nhóm.
+- **CA Certificate:** Chọn đúng đường dẫn đến file `ca.pem` trên máy của bạn.
+<img width="885" height="352" alt="Screenshot 2026-10-23 061253" src="https://github.com/user-attachments/assets/731629a1-e3a7-4742-89b8-7e6a97a91689" />
+<img width="830" height="363" alt="Screenshot 2026-10-23 061318" src="https://github.com/user-attachments/assets/93ce5b89-50f6-443d-9c50-324ffa60e55d" />
 
-1. Open the project in your IDE.
-2. Reload the Maven project if necessary.
-3. Run `Main.java`.
-4. Check the console output.
 
-If the connection is successful, you should see:
+Sau khi hoàn tất, nhấn **Test Connection** để kiểm tra kết nối.
 
-```text
-Connected to MySQL successfully!
-```
+## 5. Verify the Connection
 
-### Troubleshooting
+Sau khi cấu hình xong:
 
-- **`application.properties not found`:** Check that the file is in the configured resources directory and that Maven includes that directory in the build.
-- **`Access denied for user`:** Check your MySQL username and password.
-- **`Unknown database 'online_examination'`:** Create the database or verify the database name in the JDBC URL.
-- **Connection refused:** Make sure MySQL Server is running and the host and port are correct.
+- [ ] IntelliJ IDEA mở project thành công.
+- [ ] File `application.properties` đã được cấu hình đúng.
+- [ ] Truststore đã được tạo và đường dẫn chính xác.
+- [ ] MySQL Workbench kết nối thành công.
+- [ ] Java database connection test chạy thành công.
 
-### Security Reminder
+Nếu gặp lỗi kết nối, hãy kiểm tra lại hostname, port, username, password, SSL và các đường dẫn trước khi báo lỗi lên nhóm.
 
-- Do not commit `application.properties` because it may contain credentials.
-- Keep `application.properties.example` in the repository as a configuration template.
-- Make sure the actual configuration file is excluded in `.gitignore`.
+Khi vào MySQL các bạn sẽ thấy 1 database tên 'Online_Examination' được tạo sẵn, trong đó có 20 bảng đã đuo
 
-### Team Notes
 
-The current configuration uses a local MySQL server at `localhost:3306`. If the team later switches to a shared MySQL server or another database system, update the connection configuration and any required JDBC dependencies accordingly.
 
-![Uploading Screenshot 2026-10-12 164346.png…]()
+
+  
+
