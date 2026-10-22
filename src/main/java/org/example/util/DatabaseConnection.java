@@ -32,11 +32,28 @@ public final class DatabaseConnection {
     private DatabaseConnection() {
     }
 
+
     public static Connection getConnection() throws SQLException {
         String url = PROPERTIES.getProperty("db.url");
         String username = PROPERTIES.getProperty("db.username");
         String password = PROPERTIES.getProperty("db.password", "");
 
+        System.setProperty(
+                "javax.net.ssl.trustStore",
+                PROPERTIES.getProperty("db.ssl.truststore")
+        );
+
+        System.setProperty(
+                "javax.net.ssl.trustStorePassword",
+                PROPERTIES.getProperty("db.ssl.truststore.password")
+        );
+
+        System.setProperty(
+                "javax.net.ssl.trustStoreType",
+                "PKCS12"
+        );
+
         return DriverManager.getConnection(url, username, password);
     }
+
 }
