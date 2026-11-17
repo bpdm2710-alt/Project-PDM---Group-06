@@ -1,5 +1,19 @@
 # Project PDM — Group 06
 
+## Normalization review and work plan
+
+Xem [gói rà soát và kế hoạch Normalization](docs/normalization/README.md) để đọc
+FD/candidate keys, chứng minh phân rã, các quyết định cần chốt và checklist bàn
+giao cho Database, Data Modelers, Query và Java. Đây là bản đề xuất để review;
+chưa phải schema đã phê duyệt hoặc migration cho database dùng chung.
+
+Kiểm tra FD/keys từ thư mục gốc repo (Python 3.10+, không cần thư viện ngoài):
+
+```text
+python tools/normalization_check.py
+python -m unittest discover -s tests -v
+```
+
 ## MySQL Database Connection Setup
 
 Hướng dẫn các thành viên thiết lập môi trường và kết nối Java project với MySQL database trên Aiven.
