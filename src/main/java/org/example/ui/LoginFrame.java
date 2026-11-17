@@ -418,17 +418,19 @@ public class LoginFrame extends JFrame {
             return;
         }
 
-        // TODO:
-        // Connect to AuthenticationService.
-        // Verify account credentials using the database.
-        // Redirect to StudentDashboard or InstructorDashboard.
+        // Front-end prototype only: route by email so both mock dashboards
+        // can be reached without a real authentication service.
+        // (Replace this block with AuthenticationService in a later task.)
+        boolean instructor = email.toLowerCase().contains("instructor")
+                || email.toLowerCase().contains("sarah")
+                || email.toLowerCase().contains("teacher");
 
-        JOptionPane.showMessageDialog(
-                this,
-                "Database authentication has not been connected yet.",
-                "Information",
-                JOptionPane.INFORMATION_MESSAGE
-        );
+        dispose();
+        if (instructor) {
+            new InstructorDashBoard().setVisible(true);
+        } else {
+            new StudentDashBoard().setVisible(true);
+        }
     }
 
     private void showError(String message) {
