@@ -1,5 +1,9 @@
 
+
 package org.example.ui;
+
+import org.example.ui.panel.CoursesPanel;
+import org.example.ui.panel.CoursesPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -27,8 +31,8 @@ public class StudentDashBoard extends JFrame {
     public StudentDashBoard() {
         setTitle("Examly - Student Workspace");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1440, 1000);
-        setMinimumSize(new Dimension(1100, 720));
+        setSize(1920, 1080);
+        setMinimumSize(new Dimension(1280, 720));
         setLocationRelativeTo(null);
 
         setLayout(new BorderLayout());
@@ -37,7 +41,7 @@ public class StudentDashBoard extends JFrame {
         add(createMainArea(), BorderLayout.CENTER);
 
         contentPanel.add(createOverviewPanel(), "Overview");
-        contentPanel.add(createPlaceholderPanel("Courses"), "Courses");
+        contentPanel.add(new CoursesPanel(), "Courses");
         contentPanel.add(createPlaceholderPanel("My exams"), "My exams");
         contentPanel.add(createPlaceholderPanel("Results"), "Results");
 
@@ -874,4 +878,5 @@ public class StudentDashBoard extends JFrame {
         });
     }
 }
+
 
