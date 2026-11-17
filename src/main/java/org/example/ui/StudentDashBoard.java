@@ -3,7 +3,7 @@
 package org.example.ui;
 
 import org.example.ui.panel.CoursesPanel;
-import org.example.ui.panel.CoursesPanel;
+import org.example.ui.panel.ExamPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -42,7 +42,7 @@ public class StudentDashBoard extends JFrame {
 
         contentPanel.add(createOverviewPanel(), "Overview");
         contentPanel.add(new CoursesPanel(), "Courses");
-        contentPanel.add(createPlaceholderPanel("My exams"), "My exams");
+        contentPanel.add(new ExamPanel(), "My exams");
         contentPanel.add(createPlaceholderPanel("Results"), "Results");
 
         cardLayout.show(contentPanel, "Overview");
@@ -602,14 +602,8 @@ public class StudentDashBoard extends JFrame {
 
         action.setPreferredSize(new Dimension(136, 42));
 
-        action.addActionListener(e -> {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Exam functionality will be implemented later.",
-                    buttonText,
-                    JOptionPane.INFORMATION_MESSAGE
-            );
-        });
+        action.addActionListener(e ->
+                cardLayout.show(contentPanel, "My exams"));
 
         row.add(action, BorderLayout.EAST);
 

@@ -1,4 +1,9 @@
 target/
+
+# Local DB credentials - never commit
+src/main/Sources/application.properties
+src/main/sources/application.properties
+
 !../.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
