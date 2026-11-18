@@ -1,4 +1,3 @@
-
 package org.example.ui;
 
 import javax.swing.*;
@@ -64,14 +63,11 @@ public class LoginFrame extends JFrame {
         panel.setLayout(new BorderLayout(0, 0));
         panel.setBorder(new EmptyBorder(40, 46, 40, 46));
 
-        // Logo
         JLabel logo = new JLabel("examly.");
         logo.setFont(new Font("SansSerif", Font.BOLD, 34));
         logo.setForeground(PRIMARY);
-
         panel.add(logo, BorderLayout.NORTH);
 
-        // Main content
         JPanel content = new JPanel();
         content.setOpaque(false);
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
@@ -106,12 +102,10 @@ public class LoginFrame extends JFrame {
         content.add(description);
         content.add(Box.createVerticalStrut(65));
 
-        // Exam information card
         content.add(createExamCard());
 
         panel.add(content, BorderLayout.CENTER);
 
-        // Footer
         JPanel footer = new JPanel();
         footer.setOpaque(false);
         footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
@@ -120,9 +114,7 @@ public class LoginFrame extends JFrame {
         footerTitle.setFont(new Font("SansSerif", Font.BOLD, 11));
         footerTitle.setForeground(PRIMARY);
 
-        JLabel footerText = new JLabel(
-                "Built for students. Made for educators."
-        );
+        JLabel footerText = new JLabel("Built for students. Made for educators.");
         footerText.setFont(new Font("SansSerif", Font.PLAIN, 14));
         footerText.setForeground(MUTED);
 
@@ -174,9 +166,7 @@ public class LoginFrame extends JFrame {
 
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setOpaque(false);
-        bottom.setBorder(BorderFactory.createMatteBorder(
-                1, 0, 0, 0, BORDER
-        ));
+        bottom.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, BORDER));
         bottom.add(stats, BorderLayout.CENTER);
 
         card.add(bottom, BorderLayout.SOUTH);
@@ -217,7 +207,6 @@ public class LoginFrame extends JFrame {
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.setPreferredSize(new Dimension(490, 540));
 
-        // Welcome text
         JLabel welcome = new JLabel("WELCOME BACK");
         welcome.setFont(new Font("SansSerif", Font.BOLD, 11));
         welcome.setForeground(PRIMARY);
@@ -235,10 +224,8 @@ public class LoginFrame extends JFrame {
         form.add(title);
         form.add(Box.createVerticalStrut(8));
         form.add(subtitle);
-
         form.add(Box.createVerticalStrut(52));
 
-        // Email
         form.add(createFieldLabel("Email address"));
         form.add(Box.createVerticalStrut(10));
 
@@ -248,7 +235,6 @@ public class LoginFrame extends JFrame {
 
         form.add(Box.createVerticalStrut(26));
 
-        // Password
         form.add(createFieldLabel("Password"));
         form.add(Box.createVerticalStrut(10));
 
@@ -257,7 +243,6 @@ public class LoginFrame extends JFrame {
 
         form.add(Box.createVerticalStrut(16));
 
-        // Error message
         errorLabel = new JLabel("Email or password is incorrect. Please try again.");
         errorLabel.setFont(new Font("SansSerif", Font.PLAIN, 12));
         errorLabel.setForeground(new Color(205, 55, 55));
@@ -270,7 +255,6 @@ public class LoginFrame extends JFrame {
 
         form.add(Box.createVerticalStrut(24));
 
-        // Sign in button
         signInButton = new JButton("Sign in  →");
         signInButton.setFont(new Font("SansSerif", Font.BOLD, 14));
         signInButton.setForeground(Color.WHITE);
@@ -296,7 +280,6 @@ public class LoginFrame extends JFrame {
 
         form.add(note);
 
-        // Footer
         JPanel footer = new JPanel();
         footer.setOpaque(false);
         footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
@@ -410,7 +393,7 @@ public class LoginFrame extends JFrame {
     }
 
     private void handleLogin() {
-        String email = emailField.getText().trim();
+        String email = emailField.getText().trim().toLowerCase();
         String password = new String(passwordField.getPassword());
 
         if (email.isEmpty() || password.isEmpty()) {
@@ -418,19 +401,17 @@ public class LoginFrame extends JFrame {
             return;
         }
 
-        // Front-end prototype only: route by email so both mock dashboards
-        // can be reached without a real authentication service.
-        // (Replace this block with AuthenticationService in a later task.)
-        boolean instructor = email.toLowerCase().contains("instructor")
-                || email.toLowerCase().contains("sarah")
-                || email.toLowerCase().contains("teacher");
+        // Route to Instructor if email contains "chen"
+        boolean isInstructor = email.contains("chen");
 
         dispose();
-        if (instructor) {
-            new InstructorDashBoard().setVisible(true);
-        } else {
-            new StudentDashBoard().setVisible(true);
-        }
+        SwingUtilities.invokeLater(() -> {
+            if (isInstructor) {
+                new InstructorDashBoard().setVisible(true);
+            } else {
+                new StudentDashBoard().setVisible(true);
+            }
+        });
     }
 
     private void showError(String message) {
@@ -487,6 +468,3 @@ public class LoginFrame extends JFrame {
         });
     }
 }
-
-
-
