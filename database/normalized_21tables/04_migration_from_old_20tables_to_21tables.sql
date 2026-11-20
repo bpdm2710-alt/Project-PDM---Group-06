@@ -5,7 +5,7 @@
 -- Aborts (ROLLBACK + SIGNAL 45000) before committing ANY rows if pre-audit or
 -- post-migration lossless reconciliation detects any violation.
 -- ============================================================================
-USE `online_examination`;
+USE `Online_Examination`;
 DROP PROCEDURE IF EXISTS `sp_migrate_old_to_new`;
 
 DELIMITER $$
@@ -217,9 +217,9 @@ BEGIN
     FROM `online_examination_old`.`attempt` old_a
     LEFT JOIN (
       SELECT a.`Attempt_no`, a.`RegisID`, a.`StartTime`, a.`EndTime`, p.`PaperID`, r.`Exam_ID`
-      FROM `online_examination`.`attempt` a
-      JOIN `online_examination`.`registration` r ON r.`RegisID` = a.`RegisID`
-      JOIN `online_examination`.`paper` p        ON p.`PaperKey` = a.`PaperKey`
+      FROM `Online_Examination`.`attempt` a
+      JOIN `Online_Examination`.`registration` r ON r.`RegisID` = a.`RegisID`
+      JOIN `Online_Examination`.`paper` p        ON p.`PaperKey` = a.`PaperKey`
     ) new_a
       ON new_a.`Attempt_no` = old_a.`Attempt_no`
      AND new_a.`RegisID`    = old_a.`RegisID`
@@ -232,9 +232,9 @@ BEGIN
     SELECT COUNT(*) INTO v_spur_att
     FROM (
       SELECT a.`Attempt_no`, a.`RegisID`, a.`StartTime`, a.`EndTime`, p.`PaperID`, r.`Exam_ID`
-      FROM `online_examination`.`attempt` a
-      JOIN `online_examination`.`registration` r ON r.`RegisID` = a.`RegisID`
-      JOIN `online_examination`.`paper` p        ON p.`PaperKey` = a.`PaperKey`
+      FROM `Online_Examination`.`attempt` a
+      JOIN `Online_Examination`.`registration` r ON r.`RegisID` = a.`RegisID`
+      JOIN `Online_Examination`.`paper` p        ON p.`PaperKey` = a.`PaperKey`
     ) new_a
     LEFT JOIN `online_examination_old`.`attempt` old_a
       ON old_a.`Attempt_no` = new_a.`Attempt_no`
@@ -249,9 +249,9 @@ BEGIN
     FROM `online_examination_old`.`contains` old_c
     LEFT JOIN (
       SELECT p.`Exam_ID`, p.`PaperID`, pq.`Quest_ID`, pq.`QuestionOrder`, eqm.`Marks`
-      FROM `online_examination`.`paper_question` pq
-      JOIN `online_examination`.`paper` p                 ON p.`PaperKey` = pq.`PaperKey`
-      JOIN `online_examination`.`exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
+      FROM `Online_Examination`.`paper_question` pq
+      JOIN `Online_Examination`.`paper` p                 ON p.`PaperKey` = pq.`PaperKey`
+      JOIN `Online_Examination`.`exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
     ) new_c
       ON new_c.`Exam_ID`       = old_c.`Exam_ID`
      AND new_c.`PaperID`       = old_c.`PaperID`
@@ -263,9 +263,9 @@ BEGIN
     SELECT COUNT(*) INTO v_spur_cnt
     FROM (
       SELECT p.`Exam_ID`, p.`PaperID`, pq.`Quest_ID`, pq.`QuestionOrder`, eqm.`Marks`
-      FROM `online_examination`.`paper_question` pq
-      JOIN `online_examination`.`paper` p                 ON p.`PaperKey` = pq.`PaperKey`
-      JOIN `online_examination`.`exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
+      FROM `Online_Examination`.`paper_question` pq
+      JOIN `Online_Examination`.`paper` p                 ON p.`PaperKey` = pq.`PaperKey`
+      JOIN `Online_Examination`.`exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
     ) new_c
     LEFT JOIN `online_examination_old`.`contains` old_c
       ON old_c.`Exam_ID`       = new_c.`Exam_ID`

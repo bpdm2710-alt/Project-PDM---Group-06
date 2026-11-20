@@ -2,12 +2,14 @@
 
 ## Normalization & Normalized SQL (21 bảng BCNF)
 
-* **Tóm tắt chuẩn hóa & đối chiếu cho từng nhóm:** [docs/normalization/README.md](docs/normalization/README.md)
-* **Bộ script SQL 21 bảng BCNF (đã kiểm chứng trên MySQL 8.4.11):** [database/normalized_21tables/](database/normalized_21tables/)
+* [Tóm tắt chuẩn hóa và đối chiếu cardinality EER](docs/normalization/README.md)
+* **Bộ script SQL 21 bảng BCNF (schema `Online_Examination`, đã kiểm chứng trên MySQL 8.4.11):** [database/normalized_21tables/](database/normalized_21tables/)
   * Nộp bài D5 / dựng mới DB mẫu: `02_online_examination_full_submission.sql`
   * Import dựng `.mwb` trên Workbench: `01_schema_ddl_for_mwb_import.sql`
   * Truy vấn Topic 20 & 39 test nghiệm thu: `03_verify_constraints_and_acceptance_N01_N24.sql`
   * Chuyển dữ liệu từ schema 20 bảng cũ: `04_migration_from_old_20tables_to_21tables.sql`
+
+Xem [quy ước tên schema của bộ SQL](docs/normalization/README.md#schema-mysql) trước khi dựng DB mẫu hoặc chuyển dữ liệu.
 
 ## MySQL Database Connection Setup
 
@@ -88,7 +90,7 @@ Sau khi cấu hình xong:
 
 Nếu gặp lỗi kết nối, hãy kiểm tra lại hostname, port, username, password, SSL và các đường dẫn trước khi báo lỗi lên nhóm.
 
-Khi vào MySQL các bạn sẽ thấy 1 database tên 'Online_Examination' được tạo sẵn, trong đó có 20 bảng đã đuo
+Trong Workbench, mở schema theo cấu hình trong `application.properties`. File mẫu dùng `Online_Examination`. Script `02` dựng 21 bảng trong schema này trên môi trường kiểm thử. Số bảng trên Aiven phụ thuộc phiên bản đã triển khai.
 
 
 

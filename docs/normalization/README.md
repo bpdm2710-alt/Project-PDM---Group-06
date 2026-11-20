@@ -20,11 +20,19 @@
 
 | Nhóm / Mục đích | File cần dùng | Ghi chú sử dụng |
 | --- | --- | --- |
-| **Nộp bài D5 / Dựng DB mới** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Có `DROP/CREATE DATABASE online_examination`; chạy lại được nhiều lần liên tiếp với `>= 15` dòng mỗi bảng. |
-| **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần không chứa `DELIMITER`/Trigger để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
-| **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy ngay sau `02` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 test nghiệm thu (`N01–N24` + `BR-29/37/41/42/45/49`). |
+| **Nộp bài D5 / Dựng DB mới** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Dùng `Online_Examination` cho cả `DROP`, `CREATE` và `USE`, khớp `application.properties.example`. Bộ seed có ít nhất 15 dòng mỗi bảng. |
+| **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần tạo schema `Online_Examination` (không chứa `DELIMITER`/Trigger) để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
+| **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy trực tiếp ngay sau `02` trên `Online_Examination` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 ca nghiệm thu. |
 | **Team Java DAO / Service** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Gọi trực tiếp 3 Views tính điểm/xếp hạng và 5 Stored Procedures ACID; không tự tính lại logic chọn đáp án hoặc chốt bài ở tầng UI. |
-| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển dữ liệu từ `online_examination_old` sang schema 21 bảng trống tạo bởi `01`; tự `ROLLBACK` (lỗi `1644`, `0` dòng ghi) nếu tiền kiểm hoặc đối soát lossless sai lệch. |
+| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển dữ liệu từ `online_examination_old` sang schema đích `Online_Examination` trống tạo bởi `01`; tự `ROLLBACK` (lỗi `1644`, `0` dòng ghi) nếu tiền kiểm hoặc đối soát lossless sai lệch. |
+
+### Schema MySQL
+
+Cả bốn script (`01`–`04`) dùng schema đích **`Online_Examination`**, khớp `application.properties.example` và `database/student_results/`. Script `04` đọc từ schema nguồn 20 bảng `online_examination_old`. Nếu schema nguồn có tên khác, cập nhật các tham chiếu nguồn trong `04`.
+
+Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên Windows với `lower_case_table_names = 1`. Trên máy chủ có `lower_case_table_names = 0`, các câu lệnh dùng đúng tên `Online_Examination`. Chế độ này chưa được chạy thử.
+
+`01` và `02` xóa rồi tạo lại schema `Online_Examination`. Chạy hai script này trong môi trường kiểm thử riêng.
 
 ---
 
@@ -39,3 +47,17 @@
   1. Import `01_schema_ddl_for_mwb_import.sql` trên MySQL Workbench GUI để xuất file `.mwb` mới và ảnh sơ đồ quan hệ 21 bảng.
   2. Kiểm tra dữ liệu thực tế trên Aiven (`online_examination_old`) để quyết định làm mới DB bằng `02` hay migrate an toàn bằng `01` + `04`.
   3. Đồng bộ các lớp Java `DAO` / `MODEL` / `Service` trên `main` (hiện viết theo `OPTION C` / bảng 20 cột cũ như `paper_contains`, `paper_code`, `ANSWER.AnswerText` cho MCQ) sang schema 21 bảng khi nhóm thống nhất áp dụng.
+
+---
+
+## 4. Đối chiếu ký hiệu Cardinality trên EER (`erdplus_D.png`) với Business Rules
+
+Theo quy ước ERDPlus (ký hiệu đặt **cạnh thực thể X** biểu diễn có bao nhiêu X gắn với một thực thể ở đầu kia), đối chiếu `erdplus_D.png` hiện hành cần chỉnh 3 đầu cạnh phải của `Question` từ `|<` (`1..N`, bắt buộc `>= 1`) sang `o<` (`0..N`, có thể bằng `0` khi soạn thảo):
+
+| Quan hệ | Đầu đang vẽ | Cần sửa thành | Business Rule căn cứ |
+| --- | --- | --- | --- |
+| `Has_ques` (`Topic` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-11:** Topic có thể tồn tại trước khi có câu hỏi đầu tiên (đầu cạnh `Topic` vẫn giữ `\|\|` theo **BR-15**). |
+| `Paper_Question` (`Paper` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-25, BR-28:** Đề được tạo trước rồi mới thêm câu; điều kiện có `>= 1` câu chỉ bắt buộc khi đề được giao cho `Attempt` (trigger `trg_attempt_bi_checks`). |
+| `Exam_Question_Marks` (`Examination` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-25:** Kỳ thi được lập trước khi gán câu hỏi và mức điểm tối đa. |
+
+*Cùng nguyên tắc cho phép tồn tại trước khi gắn con lúc soạn dữ liệu (`Master v2` §3.1):* các đầu `o<` cũng áp dụng tương tự ở `Register` (cạnh `Registration`, **BR-31**), `Has_paper` (cạnh `Paper`, **BR-25**) và `Option_of` (cạnh `Options`, **BR-20** — bắt buộc `>= 2` option và `1` đáp án đúng được kiểm trước khi đưa MCQ vào đề). Các chỉnh sửa minimum cardinality (`1` → `0`) trên sơ đồ EER này **không làm thay đổi bất kỳ bảng, PK hay FK nào trong bộ DDL 21 bảng SQL**.
