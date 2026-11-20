@@ -1,5 +1,11 @@
 package org.example.ui;
 
+import org.example.Service.AuthService;
+import org.example.Service.ServiceException;
+import org.example.Service.Services;
+import org.example.session.Session;
+import org.example.ui.components.AsyncTask;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -267,6 +273,7 @@ public class LoginFrame extends JFrame {
         signInButton.setPreferredSize(new Dimension(490, 44));
 
         signInButton.addActionListener(e -> handleLogin());
+        SwingUtilities.invokeLater(() -> getRootPane().setDefaultButton(signInButton));
 
         form.add(signInButton);
 
@@ -400,18 +407,44 @@ public class LoginFrame extends JFrame {
             showError("Please enter both email and password.");
             return;
         }
+        if (!email.contains("@")) {
+            showError("Please enter a valid email address.");
+            return;
+        }
 
-        // Route to Instructor if email contains "chen"
-        boolean isInstructor = email.contains("chen");
+        setBusy(true);
+        AsyncTask.run(
+                () -> Services.auth().login(email, password),
+                this::onLoginSuccess,
+                this::onLoginFailure);
+    }
 
+    private void onLoginSuccess(AuthService.UserAccount user) {
+        Session.start(user);
         dispose();
-        SwingUtilities.invokeLater(() -> {
-            if (isInstructor) {
-                new InstructorDashBoard().setVisible(true);
-            } else {
-                new StudentDashBoard().setVisible(true);
-            }
-        });
+        if (user.role() == AuthService.Role.INSTRUCTOR) {
+            new InstructorDashBoard().setVisible(true);
+        } else {
+            new StudentDashBoard().setVisible(true);
+        }
+    }
+
+    private void onLoginFailure(ServiceException error) {
+        setBusy(false);
+        passwordField.setText("");
+        showError(error.getKind() == ServiceException.Kind.UNAUTHORIZED
+                ? "Email or password is incorrect. Please try again."
+                : error.getMessage());
+    }
+
+    private void setBusy(boolean busy) {
+        signInButton.setEnabled(!busy);
+        signInButton.setText(busy ? "Signing in…" : "Sign in  →");
+        emailField.setEnabled(!busy);
+        passwordField.setEnabled(!busy);
+        if (busy) {
+            errorLabel.setVisible(false);
+        }
     }
 
     private void showError(String message) {
