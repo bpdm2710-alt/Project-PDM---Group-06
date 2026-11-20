@@ -10,9 +10,15 @@ Biên dịch: `mvn -q compile` (hoặc Build trong IntelliJ).
 - [x] Đã xóa các file mock cũ (CoursesPanel, ExamPanel, InstructorCoursesPanel)
 - [x] `Main` mở LoginFrame
 
+## Data layer (đã có schema thật từ DB)
+- [x] `AuthServiceImpl` (đăng nhập), `StudentServiceImpl`: Overview, My exams, Results. `Main` đã `Services.install(...)`
+- [x] Sửa `UserDAO`: cột đúng là `Password_hash_`
+- Quy ước: attempt đang làm có `EndTime = StartTime`, nộp xong `EndTime > StartTime` (vì EndTime NOT NULL); điểm = SUM(MarkAwarded)/SUM(Marks); đậu khi điểm >= Pass_mark (điểm thô)
+- Chưa chạy thử với DB thật
+
 ## Việc kế tiếp
-- [ ] Viết DAO + ServiceImpl theo `01-screen-data-contract.md`, rồi `Services.install(...)` trong `Main`
-- [ ] Làm từng lát: Auth+Overview -> Courses/My exams -> Exam/Results -> Instructor
+- [ ] StudentServiceImpl: Courses, listCourseExams, registerForExam, startAttempt/saveAnswer/submitAttempt
+- [ ] InstructorServiceImpl (toàn bộ). Chưa có cột Status cho EXAMINATION nên Publish/Unpublish cần quyết định schema
 - [ ] Chốt các quyết định schema (Status, Pass_mark, mã môn)
 
 ## Ghi chú

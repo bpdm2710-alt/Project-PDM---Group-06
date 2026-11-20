@@ -12,7 +12,7 @@ public class UserDAO {
                      "FROM `user` u " +
                      "LEFT JOIN `student` s ON u.User_ID = s.User_ID " +
                      "LEFT JOIN `instructor` i ON u.User_ID = i.User_ID " +
-                     "WHERE u.Email = ? AND u.Password_hash = ?";
+                     "WHERE u.Email = ? AND u.Password_hash_ = ?";
         
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {

@@ -35,4 +35,17 @@ public class ServiceException extends Exception {
     public Kind getKind() {
         return kind;
     }
+
+    /** Short "ExceptionType: message" of the deepest cause, for dev-time error messages. */
+    public static String rootCauseText(Throwable t) {
+        Throwable r = t;
+        while (r.getCause() != null && r.getCause() != r) {
+            r = r.getCause();
+        }
+        String m = r.getMessage() == null ? "" : r.getMessage().replaceAll("\\s+", " ").trim();
+        if (m.length() > 220) {
+            m = m.substring(0, 220) + "...";
+        }
+        return r.getClass().getSimpleName() + (m.isEmpty() ? "" : ": " + m);
+    }
 }
