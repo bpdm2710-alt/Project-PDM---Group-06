@@ -2,7 +2,7 @@ package org.example.session;
 
 import org.example.Service.AuthService.UserAccount;
 
-
+/** Who is logged in. Replaces the old "email contains chen" routing. */
 public final class Session {
 
     private static volatile UserAccount current;
