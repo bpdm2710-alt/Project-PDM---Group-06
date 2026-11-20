@@ -9,9 +9,9 @@ Thư mục này chứa bộ script SQL chuẩn hóa hoàn chỉnh cho thiết k�
 | File | Mục đích sử dụng |
 | --- | --- |
 | `01_schema_ddl_for_mwb_import.sql` | **DDL thuần túy (chỉ CREATE TABLE + Constraints + Indexes)**, không có `DELIMITER`/Trigger/Seed — dùng để import vào MySQL Workbench sinh file `.mwb` sạch không lỗi cú pháp. |
-| `02_online_examination_full_submission.sql` | **Script nộp bài hoàn chỉnh (Deliverable D5)**: `DROP/CREATE DATABASE online_examination`, 21 bảng, 28 FK (đủ `ON DELETE`/`ON UPDATE`), `UNIQUE`, `CHECK`, 5 Indexes, 3 Views, Triggers bảo vệ 2 chiều, 5 Stored Procedures ACID và dữ liệu mẫu **`>= 15` dòng trên cả 21/21 bảng**. |
+| `02_online_examination_full_submission.sql` | **Script nộp bài hoàn chỉnh (Deliverable D5)**: `DROP/CREATE DATABASE Online_Examination`, 21 bảng, 28 FK (đủ `ON DELETE`/`ON UPDATE`), `UNIQUE`, `CHECK`, 5 Indexes, 3 Views, Triggers bảo vệ 2 chiều, 5 Stored Procedures ACID và dữ liệu mẫu **`>= 15` dòng trên cả 21/21 bảng**. |
 | `03_verify_constraints_and_acceptance_N01_N24.sql` | Bộ test tự động kiểm tra số dòng `>= 15`, 5 câu Query bắt buộc của Topic 20, và 39 ca kiểm chứng `N01–N24` + `BR-29/37/41/42/45/49` (duplicate PK, FK sai, CHECK sai, Trigger vòng tròn, sai kỳ thi, freeze lịch sử, chấm câu trống/tab/CRLF...). |
-| `04_migration_from_old_20tables_to_21tables.sql` | Script chuyển dữ liệu giao dịch nguyên tử từ bản sao database 20 bảng cũ (`online_examination_old`) sang schema mới 21 bảng (`online_examination`) với **cổng chặn tự động** (nếu xung đột `Marks` cùng kỳ thi hoặc lệch audit/lossless trước `COMMIT`, toàn bộ giao dịch `ROLLBACK` và báo lỗi `1644`, không ghi dở dữ liệu). |
+| `04_migration_from_old_20tables_to_21tables.sql` | Script chuyển dữ liệu giao dịch nguyên tử từ bản sao database 20 bảng cũ (`online_examination_old`) sang schema mới 21 bảng (`Online_Examination`) với **cổng chặn tự động** (nếu xung đột `Marks` cùng kỳ thi hoặc lệch audit/lossless trước `COMMIT`, toàn bộ giao dịch `ROLLBACK` và báo lỗi `1644`, không ghi dở dữ liệu). |
 
 > **Kết quả kiểm chứng độc lập trên MySQL 8.4.11:** `01` chạy sạch (exit code `0`); `02` chạy lại **2 lần liên tiếp** không lỗi với `>= 15` dòng trên cả `21/21` bảng; `03` đạt `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`; `04` qua `8` tiền kiểm + `4` đối soát lossless và tự `ROLLBACK` (`0` dòng ghi) khi xung đột `Marks`.
 
@@ -30,7 +30,7 @@ Thư mục này chứa bộ script SQL chuẩn hóa hoàn chỉnh cho thiết k�
 ### Cách B — Reverse Engineer từ MySQL Server sau khi đã chạy file `02` (Lấy đủ cả Views, Triggers, Procedures)
 1. Mở kết nối MySQL Server (local hoặc schema test tách riêng) trong Workbench, chạy toàn bộ file `02_online_examination_full_submission.sql`.
 2. Trên thanh menu chính, chọn **Database → Reverse Engineer...** (`Ctrl+R`).
-3. Chọn kết nối → chọn schema **`online_examination`** → tích chọn cả Tables, Views, Routines, Triggers → **Execute → Finish**.
+3. Chọn kết nối → chọn schema **`Online_Examination`** → tích chọn cả Tables, Views, Routines, Triggers → **Execute → Finish**.
 4. Lưu file `.mwb` và xuất ảnh sơ đồ quan hệ.
 
 ---

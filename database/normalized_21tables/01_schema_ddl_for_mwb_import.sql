@@ -10,11 +10,11 @@
 --   * AUTO_INCREMENT is MySQL syntax for surrogate PaperKey.
 -- ============================================================================
 
-DROP DATABASE IF EXISTS `online_examination`;
-CREATE DATABASE `online_examination`
+DROP DATABASE IF EXISTS `Online_Examination`;
+CREATE DATABASE `Online_Examination`
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_0900_ai_ci;
-USE `online_examination`;
+USE `Online_Examination`;
 
 -- ----------------------------------------------------------------------------
 -- 1. user (Superclass; Email is an enforced alternate candidate key)
