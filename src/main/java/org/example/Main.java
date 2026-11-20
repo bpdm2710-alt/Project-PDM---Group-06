@@ -1,21 +1,18 @@
 package org.example;
 
-import org.example.util.DatabaseConnection;
+import org.example.ui.LoginFrame;
 
-import java.sql.Connection;
-import java.sql.SQLException;
+import javax.swing.*;
 
+/**
+ * App entry point. While the data layer is not written, no service is
+ * installed, so every screen shows "Service unavailable" instead of data.
+ * When the DAO/Service implementations exist, install them here:
+ * {@code Services.install(new AuthServiceImpl(), new StudentServiceImpl(), new InstructorServiceImpl());}
+ */
 public class Main {
 
     public static void main(String[] args) {
-        try (Connection connection =
-                     DatabaseConnection.getConnection()) {
-
-            System.out.println("Connected to MySQL successfully!");
-
-        } catch (SQLException e) {
-            System.err.println("MySQL connection failed.");
-            e.printStackTrace();
-        }
+        SwingUtilities.invokeLater(() -> new LoginFrame().setVisible(true));
     }
 }

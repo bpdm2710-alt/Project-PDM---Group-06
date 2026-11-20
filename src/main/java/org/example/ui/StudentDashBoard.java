@@ -1,8 +1,17 @@
 package org.example.ui;
 
 import org.example.Service.AuthService.UserAccount;
+import org.example.Service.Services;
+import org.example.Service.StudentService;
 import org.example.session.Session;
+import org.example.ui.components.AsyncTask;
+import org.example.ui.components.Dialogs;
+import org.example.ui.components.Fmt;
+import org.example.ui.panel.ExamSessionPanel;
 import org.example.ui.components.Refreshable;
+import org.example.ui.panel.MyExamsPanel;
+import org.example.ui.panel.ResultsPanel;
+import org.example.ui.panel.StudentCoursesPanel;
 import org.example.ui.panel.StudentOverviewPanel;
 
 import javax.swing.*;
@@ -41,9 +50,9 @@ public class StudentDashBoard extends JFrame implements Navigator {
 
         content.setBackground(BACKGROUND);
         addPage(OVERVIEW, new StudentOverviewPanel(this));
-        addPage(COURSES, placeholder(COURSES));
-        addPage(MY_EXAMS, placeholder(MY_EXAMS));
-        addPage(RESULTS, placeholder(RESULTS));
+        addPage(COURSES, new StudentCoursesPanel(this));
+        addPage(MY_EXAMS, new MyExamsPanel(this));
+        addPage(RESULTS, new ResultsPanel());
 
         add(createSidebar(), BorderLayout.WEST);
         JPanel main = new JPanel(new BorderLayout());
@@ -75,11 +84,42 @@ public class StudentDashBoard extends JFrame implements Navigator {
         }
     }
 
+    private static final String EXAM = "Exam";
+    private ExamSessionPanel examPanel;
+
     @Override
     public void openExam(int regisId) {
-        JOptionPane.showMessageDialog(this,
-                "The exam screen is being rebuilt in the next step.",
-                "Exam", JOptionPane.INFORMATION_MESSAGE);
+        AsyncTask.run(() -> Services.student().startAttempt(regisId),
+                this::showExam,
+                err -> Dialogs.error(this, err));
+    }
+
+    private void showExam(StudentService.AttemptSession attempt) {
+        closeExam();
+        examPanel = new ExamSessionPanel(attempt, this::onExamSubmitted);
+        content.add(examPanel, EXAM);
+        pages.put(EXAM, examPanel);
+        cards.show(content, EXAM);
+    }
+
+    private void onExamSubmitted(StudentService.AttemptResult r) {
+        closeExam();
+        String msg = r.fullyGraded()
+                ? "Score: " + Fmt.marks(r.score()) + " / " + Fmt.marks(r.maxScore())
+                + " (" + Fmt.percent(r.percent()) + ")\n" + (r.passed() ? "You passed." : "Not passed this time.")
+                : "Your exam was submitted. Score so far: " + Fmt.marks(r.score()) + " / "
+                + Fmt.marks(r.maxScore()) + "\nSome answers are still being graded.";
+        JOptionPane.showMessageDialog(this, msg, "Exam submitted", JOptionPane.INFORMATION_MESSAGE);
+        show(RESULTS);
+    }
+
+    private void closeExam() {
+        if (examPanel != null) {
+            examPanel.dispose();
+            content.remove(examPanel);
+            pages.remove(EXAM);
+            examPanel = null;
+        }
     }
 
     // ---- Sidebar ----------------------------------------------------------

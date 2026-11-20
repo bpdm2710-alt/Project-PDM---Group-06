@@ -1,7 +1,8 @@
 package org.example.ui;
 
 import org.example.ui.components.RoundedPanel;
-import org.example.ui.panel.InstructorCoursesPanel;
+import org.example.session.Session;
+import org.example.ui.panel.InstructorCoursesPage;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -18,6 +19,7 @@ public class InstructorDashBoard extends JFrame {
 
     private final CardLayout cards = new CardLayout();
     private final JPanel content = new JPanel(cards);
+    private InstructorCoursesPage coursesPage;
 
     public InstructorDashBoard() {
         setTitle("Examly - Instructor Workspace");
@@ -34,7 +36,9 @@ public class InstructorDashBoard extends JFrame {
         main.add(createTopBar(), BorderLayout.NORTH);
 
         content.setBackground(BACKGROUND);
-        content.add(new InstructorCoursesPanel(), "My courses");
+        coursesPage = new InstructorCoursesPage();
+        content.add(coursesPage, "My courses");
+        coursesPage.refresh();
         main.add(content, BorderLayout.CENTER);
         add(main, BorderLayout.CENTER);
     }
@@ -66,7 +70,7 @@ public class InstructorDashBoard extends JFrame {
         nav.add(caption);
 
         JButton courses = navButton("My courses", true);
-        courses.addActionListener(e -> cards.show(content, "My courses"));
+        courses.addActionListener(e -> { cards.show(content, "My courses"); coursesPage.refresh(); });
         nav.add(courses);
 
         sidebar.add(nav, BorderLayout.CENTER);
@@ -143,7 +147,7 @@ public class InstructorDashBoard extends JFrame {
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
         gbc.insets = new Insets(0, 30, 0, 30);
-        bar.add(label("Monday, 16 November 2026", plain(12), MUTED), gbc);
+        bar.add(label(java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", java.util.Locale.ENGLISH)), plain(12), MUTED), gbc);
 
         JButton bell = new JButton("♧");
         bell.setFont(plain(23));
@@ -162,7 +166,7 @@ public class InstructorDashBoard extends JFrame {
         JPanel profile = new JPanel();
         profile.setOpaque(false);
         profile.setLayout(new BoxLayout(profile, BoxLayout.Y_AXIS));
-        profile.add(label("Dr. Sarah Chen", bold(14), DARK));
+        profile.add(label(Session.user().fullName(), bold(14), DARK));
         profile.add(Box.createVerticalStrut(5));
         profile.add(label("Instructor  ⌄", plain(11), MUTED));
         gbc.gridx = 3;
@@ -177,12 +181,9 @@ public class InstructorDashBoard extends JFrame {
                 "Are you sure you want to log out?", "Log out",
                 JOptionPane.YES_NO_OPTION);
         if (choice == JOptionPane.YES_OPTION) {
+            Session.end();
             dispose();
             new LoginFrame().setVisible(true);
         }
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new InstructorDashBoard().setVisible(true));
     }
 }
