@@ -1,16 +1,15 @@
 package org.example.Service;
 
+import org.example.DAO.jdbc.UserDAO;
 import org.example.util.DatabaseConnection;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
- * Login against the USER table. The role comes from which subtype table
+ * Login rules. The query is in {@link UserDAO}; the role comes from which subtype table
  * (STUDENT / INSTRUCTOR) holds the user.
  *
  * NOTE: Password_hash_ currently holds the plain password (seed data does),
@@ -19,32 +18,18 @@ import java.sql.SQLException;
  */
 public class AuthServiceImpl implements AuthService {
 
-    private static final String SQL =
-            "SELECT u.User_ID, u.FirstName, u.LastName, u.Email, u.Password_hash_, " +
-            "       (s.User_ID IS NOT NULL) AS is_student, " +
-            "       (i.User_ID IS NOT NULL) AS is_instructor " +
-            "FROM `USER` u " +
-            "LEFT JOIN STUDENT s ON s.User_ID = u.User_ID " +
-            "LEFT JOIN INSTRUCTOR i ON i.User_ID = u.User_ID " +
-            "WHERE LOWER(u.Email) = LOWER(?)";
-
     @Override
     public UserAccount login(String email, String password) throws ServiceException {
         if (email == null || email.isBlank() || password == null || password.isEmpty()) {
             throw new ServiceException(ServiceException.Kind.VALIDATION,
                     "Please enter both email and password.");
         }
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(SQL)) {
-            ps.setString(1, email.trim());
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next() && passwordMatches(password, rs.getString("Password_hash_"))) {
-                    Role role = rs.getBoolean("is_student") ? Role.STUDENT
-                            : rs.getBoolean("is_instructor") ? Role.INSTRUCTOR : null;
-                    if (role != null) {
-                        return new UserAccount(rs.getInt("User_ID"), rs.getString("FirstName"),
-                                rs.getString("LastName"), rs.getString("Email"), role);
-                    }
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            UserDAO.LoginRow u = UserDAO.findByEmail(conn, email.trim());
+            if (u != null && passwordMatches(password, u.passwordHash())) {
+                Role role = u.student() ? Role.STUDENT : u.instructor() ? Role.INSTRUCTOR : null;
+                if (role != null) {
+                    return new UserAccount(u.userId(), u.firstName(), u.lastName(), u.email(), role);
                 }
             }
         } catch (SQLException | RuntimeException | LinkageError e) {

@@ -1,79 +1,45 @@
--- Test data for the Student & Results module.
--- Target schema: Online_Examination
--- IDs 9001+ are reserved for this test flow.
--- No schema changes are required.
-
-START TRANSACTION;
-
--- Remove any previous run first (FK-safe order).
-DELETE FROM SELECT_TABLE WHERE RegisID = 9001 OR Quest_ID IN (9001, 9002, 9003, 9004);
-DELETE FROM ANSWER WHERE RegisID = 9001 OR Quest_ID IN (9001, 9002, 9003, 9004);
-DELETE FROM ATTEMPT WHERE RegisID = 9001;
-DELETE FROM REGISTRATION WHERE RegisID = 9001;
-DELETE FROM CONTAINS WHERE Exam_ID = 9001;
-DELETE FROM PAPER WHERE Exam_ID = 9001;
-DELETE FROM EXAMINATION WHERE Exam_ID = 9001;
-DELETE FROM OPTIONS WHERE Quest_ID IN (9001, 9003);
-DELETE FROM MCQ WHERE Quest_ID IN (9001, 9003);
-DELETE FROM SHORT_ANSWER WHERE Quest_ID IN (9002, 9004);
-DELETE FROM QUESTION WHERE Quest_ID IN (9001, 9002, 9003, 9004);
-DELETE FROM TEACH WHERE User_ID = 9002 OR Course_ID = 9001;
-DELETE FROM COVERS WHERE Course_ID = 9001 OR Topic_ID = 9001;
-DELETE FROM REQUIRES WHERE Course_ID_1 = 9001 OR Course_ID_2 = 9001;
-DELETE FROM TOPIC WHERE Topic_ID = 9001;
-DELETE FROM COURSE WHERE Course_ID = 9001;
-DELETE FROM STUDENT WHERE User_ID = 9001;
+-- SEED TEST (schema 20 bang). Chon san schema Online_Examination truoc khi chay.
+-- Moi cau lenh nam tren DUNG 1 DONG de client SQL khong tach sai.
+-- Mat khau tat ca tai khoan: test-hash | student.test@example.com (9001), second.student@example.com (9003), instructor.test@example.com (9002)
+DELETE FROM SELECT_TABLE WHERE RegisID IN (SELECT RegisID FROM REGISTRATION WHERE User_ID IN (9001, 9003) OR Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002))) OR Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM ANSWER WHERE RegisID IN (SELECT RegisID FROM REGISTRATION WHERE User_ID IN (9001, 9003) OR Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002))) OR Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM ATTEMPT WHERE RegisID IN (SELECT RegisID FROM REGISTRATION WHERE User_ID IN (9001, 9003) OR Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002)));
+DELETE FROM REGISTRATION WHERE User_ID IN (9001, 9003) OR Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002));
+DELETE FROM CONTAINS WHERE Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002)) OR Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM PAPER WHERE Exam_ID IN (SELECT Exam_ID FROM EXAMINATION WHERE Course_ID IN (9001, 9002));
+DELETE FROM EXAMINATION WHERE Course_ID IN (9001, 9002);
+DELETE FROM OPTIONS WHERE Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM MCQ WHERE Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM SHORT_ANSWER WHERE Quest_ID IN (SELECT Quest_ID FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002));
+DELETE FROM QUESTION WHERE User_ID = 9002 OR Topic_ID IN (9001, 9002);
+DELETE FROM TEACH WHERE User_ID = 9002 OR Course_ID IN (9001, 9002);
+DELETE FROM COVERS WHERE Course_ID IN (9001, 9002) OR Topic_ID IN (9001, 9002);
+DELETE FROM REQUIRES WHERE Course_ID_1 IN (9001, 9002) OR Course_ID_2 IN (9001, 9002);
+DELETE FROM TOPIC WHERE Topic_ID IN (9001, 9002);
+DELETE FROM COURSE WHERE Course_ID IN (9001, 9002);
+DELETE FROM STUDENT WHERE User_ID IN (9001, 9003);
 DELETE FROM INSTRUCTOR WHERE User_ID = 9002;
-DELETE FROM USER_PHONE WHERE User_ID IN (9001, 9002);
-DELETE FROM `USER` WHERE User_ID IN (9001, 9002);
-
--- Users and roles.
-INSERT INTO `USER` (User_ID, FirstName, LastName, DOB, Email, Password_hash_)
-VALUES
-    (9001, 'Test', 'Student', '2000-01-01', 'student.test@example.com', 'test-hash'),
-    (9002, 'Test', 'Instructor', '1980-01-01', 'instructor.test@example.com', 'test-hash');
-
-INSERT INTO STUDENT (User_ID, Enrollment_year) VALUES (9001, 2026);
+DELETE FROM USER_PHONE WHERE User_ID IN (9001, 9002, 9003);
+DELETE FROM `USER` WHERE User_ID IN (9001, 9002, 9003);
+INSERT INTO `USER` (User_ID, FirstName, LastName, DOB, Email, Password_hash_) VALUES (9001, 'Test', 'Student', '2000-01-01', 'student.test@example.com', 'test-hash'), (9002, 'Test', 'Instructor', '1980-01-01', 'instructor.test@example.com', 'test-hash'), (9003, 'Second', 'Student', '2001-05-05', 'second.student@example.com', 'test-hash');
+INSERT INTO STUDENT (User_ID, Enrollment_year) VALUES (9001, 2026), (9003, 2025);
 INSERT INTO INSTRUCTOR (User_ID, Department) VALUES (9002, 'Test Department');
-
--- Course and topic.
-INSERT INTO COURSE (Course_ID, CName, Credits) VALUES (9001, 'Test Course', 3);
-INSERT INTO TOPIC (Topic_ID, Content) VALUES (9001, 'Test Topic');
-
--- Questions: two MCQ and two short-answer, 5 marks each.
-INSERT INTO QUESTION (Quest_ID, Content, Difficulty, Topic_ID, User_ID) VALUES
-    (9001, 'What is 2 + 2?', 1, 9001, 9002),
-    (9002, 'Define normalization.', 1, 9001, 9002),
-    (9003, 'What is the capital of France?', 1, 9001, 9002),
-    (9004, 'What does SQL stand for?', 1, 9001, 9002);
-
-INSERT INTO MCQ (Quest_ID) VALUES (9001), (9003);
-INSERT INTO SHORT_ANSWER (Quest_ID, Answer_key) VALUES
-    (9002, 'normalization'),
-    (9004, 'structured query language');
-
-INSERT INTO OPTIONS (Option_no, Quest_ID, Op_Content, Bool_Correct) VALUES
-    (1, 9001, '4', 1),
-    (2, 9001, '5', 0),
-    (3, 9001, '6', 0),
-    (1, 9003, 'Paris', 1),
-    (2, 9003, 'London', 0);
-
--- Exam, paper, questions and registration.
-INSERT INTO EXAMINATION
-    (Exam_ID, Title, Exam_date, Duration, Pass_mark, Max_attempts, Course_ID, Status)
-VALUES
-    (9001, 'Student Results Test Exam', '2026-11-20 09:00:00', 60, 10.00, 2, 9001, 'PUBLISHED');
-
-INSERT INTO PAPER (PaperID, Exam_ID) VALUES (1, 9001);
-
-INSERT INTO CONTAINS (QuestionOrder, Marks, Quest_ID, PaperID, Exam_ID) VALUES
-    (1, 5.00, 9001, 1, 9001),
-    (2, 5.00, 9002, 1, 9001),
-    (3, 5.00, 9003, 1, 9001),
-    (4, 5.00, 9004, 1, 9001);
-
-INSERT INTO REGISTRATION (RegisID, RegisDate, User_ID, Exam_ID)
-VALUES (9001, '2026-11-20 09:00:00', 9001, 9001);
-
-COMMIT;
+INSERT INTO COURSE (Course_ID, CName, Credits) VALUES (9001, 'Test Course', 3), (9002, 'Database Systems', 4);
+INSERT INTO TOPIC (Topic_ID, Content) VALUES (9001, 'Test Topic'), (9002, 'SQL Basics');
+INSERT INTO COVERS (Course_ID, Topic_ID) VALUES (9001, 9001), (9001, 9002), (9002, 9002);
+INSERT INTO TEACH (User_ID, Course_ID, Semester) VALUES (9002, 9001, '2026-S1'), (9002, 9002, '2026-S1');
+INSERT INTO QUESTION (Quest_ID, Content, Difficulty, Topic_ID, User_ID) VALUES (9001, 'What is 2 + 2?', 1, 9001, 9002), (9002, 'Define normalization.', 2, 9001, 9002), (9003, 'What is the capital of France?', 1, 9001, 9002), (9004, 'What does SQL stand for?', 2, 9001, 9002), (9005, 'Which command removes all rows quickly?', 3, 9002, 9002), (9006, 'Name the SQL keyword that removes duplicate rows.', 2, 9002, 9002);
+INSERT INTO MCQ (Quest_ID) VALUES (9001), (9003), (9005);
+INSERT INTO SHORT_ANSWER (Quest_ID, Answer_key) VALUES (9002, 'normalization'), (9004, 'structured query language'), (9006, 'distinct');
+INSERT INTO OPTIONS (Option_no, Quest_ID, Op_Content, Bool_Correct) VALUES (1, 9001, '4', 1), (2, 9001, '5', 0), (3, 9001, '6', 0), (1, 9003, 'Paris', 1), (2, 9003, 'London', 0), (1, 9005, 'DELETE', 0), (2, 9005, 'TRUNCATE', 1), (3, 9005, 'DROP', 0);
+INSERT INTO EXAMINATION (Exam_ID, Title, Exam_date, Duration, Pass_mark, Max_attempts, Course_ID, Status) VALUES (9001, 'Student Results Test Exam', (NOW() - INTERVAL 10 DAY), 60, 10.00, 2, 9001, 'PUBLISHED'), (9002, 'Open Exam', (NOW() - INTERVAL 12 HOUR), 1440, 10.00, 2, 9001, 'PUBLISHED'), (9003, 'Upcoming Exam', (NOW() + INTERVAL 3 DAY), 45, 5.00, 1, 9001, 'PUBLISHED'), (9004, 'Draft Exam', NULL, 30, 5.00, 1, 9001, 'DRAFT');
+INSERT INTO PAPER (PaperID, Exam_ID) VALUES (1, 9001), (1, 9002), (1, 9003);
+INSERT INTO CONTAINS (Quest_ID, PaperID, Exam_ID, QuestionOrder, Marks) VALUES (9001, 1, 9001, 1, 5.00), (9002, 1, 9001, 2, 5.00), (9003, 1, 9001, 3, 5.00), (9004, 1, 9001, 4, 5.00), (9001, 1, 9002, 1, 5.00), (9003, 1, 9002, 2, 5.00), (9005, 1, 9002, 3, 10.00), (9002, 1, 9003, 1, 5.00), (9004, 1, 9003, 2, 5.00);
+INSERT INTO REGISTRATION (RegisID, RegisDate, User_ID, Exam_ID) VALUES (9001, (NOW() - INTERVAL 10 DAY) - INTERVAL 1 DAY, 9001, 9001), (9002, (NOW() - INTERVAL 10 DAY) - INTERVAL 1 DAY, 9003, 9001), (9003, NOW() - INTERVAL 1 HOUR, 9003, 9002);
+INSERT INTO ATTEMPT (Attempt_no, RegisID, PaperID, Exam_ID, StartTime, EndTime) VALUES (1, 9001, 1, 9001, (NOW() - INTERVAL 10 DAY) + INTERVAL 5 MINUTE, (NOW() - INTERVAL 10 DAY) + INTERVAL 35 MINUTE);
+INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) VALUES (9001, 1, 9001, '1', 5.00), (9002, 1, 9001, 'normalization', 5.00), (9003, 1, 9001, '2', 0.00), (9004, 1, 9001, 'sql', 0.00);
+INSERT INTO ATTEMPT (Attempt_no, RegisID, PaperID, Exam_ID, StartTime, EndTime) VALUES (1, 9002, 1, 9001, (NOW() - INTERVAL 10 DAY) + INTERVAL 5 MINUTE, (NOW() - INTERVAL 10 DAY) + INTERVAL 40 MINUTE);
+INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) VALUES (9001, 1, 9002, '2', 0.00), (9002, 1, 9002, 'normalization', 5.00), (9003, 1, 9002, '1', 5.00), (9004, 1, 9002, 'structured query language', 5.00);
+INSERT INTO ATTEMPT (Attempt_no, RegisID, PaperID, Exam_ID, StartTime, EndTime) VALUES (1, 9003, 1, 9002, NOW() - INTERVAL 10 MINUTE, NOW() - INTERVAL 10 MINUTE);
+INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) VALUES (9001, 1, 9003, '1', 0.00);
+SELECT 'teach' AS bang, COUNT(*) AS so_dong FROM TEACH WHERE User_ID = 9002 UNION ALL SELECT 'covers', COUNT(*) FROM COVERS WHERE Course_ID IN (9001, 9002) UNION ALL SELECT 'users', COUNT(*) FROM `USER` WHERE User_ID IN (9001, 9002, 9003) UNION ALL SELECT 'questions', COUNT(*) FROM QUESTION WHERE Quest_ID BETWEEN 9001 AND 9006 UNION ALL SELECT 'exams', COUNT(*) FROM EXAMINATION WHERE Exam_ID BETWEEN 9001 AND 9004 UNION ALL SELECT 'registrations',COUNT(*) FROM REGISTRATION WHERE RegisID BETWEEN 9001 AND 9003 UNION ALL SELECT 'attempts', COUNT(*) FROM ATTEMPT WHERE RegisID BETWEEN 9001 AND 9003;

@@ -1,14 +1,17 @@
 package org.example.Service;
 
+import org.example.DAO.jdbc.CourseDAO;
+import org.example.DAO.jdbc.ExamDAO;
+import org.example.DAO.jdbc.PaperDAO;
+import org.example.DAO.jdbc.QuestionDAO;
+import org.example.DAO.jdbc.StatsDAO;
+import org.example.DAO.jdbc.UserDAO;
 import org.example.session.Session;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -21,20 +24,25 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Instructor data layer.
- * Patch 03: My courses and the Exams tab (list / detail / save / delete / publish).
- * Patch 04: paper builder + question bank.
- * Patch 05: statistics + student marks. The instructor service is now complete.
+ * Instructor use cases. This class holds the rules (validation, who may do what, which attempt
+ * counts, status handling) and the transactions; every SQL statement lives in the DAOs under
+ * {@code org.example.DAO.jdbc}.
  *
  * Conventions:
  *  - EXAMINATION.Status is DRAFT or PUBLISHED; COMPLETED is derived (published and the exam
  *    window Exam_date + Duration has passed);
  *  - Exam_date NULL = "Not scheduled";
- *  - a paper is identified by (PaperID, Exam_ID); the UI's "paperKey" is the PaperID (the exam is
- *    always known next to it) and "paperNo" is the same number;
- *  - when somebody is logged in, an instructor can only touch courses he teaches.
+ *  - a paper is identified by (PaperID, Exam_ID); the UI's "paperKey" is the PaperID;
+ *  - when somebody is logged in, an instructor can only touch courses he teaches;
+ *  - D09: per student and exam, the best finished attempt counts in the statistics.
  */
 public class InstructorServiceImpl implements InstructorService {
+
+    private static final int MAX_PAPER_QUESTIONS = 200;
+    private static final int MAX_QUESTION_CHARS = 5000;
+    private static final int MAX_OPTIONS = 10;
+    private static final int HARDEST_LIMIT = 5;
+    private static final BigDecimal MAX_MARKS = new BigDecimal("9999.99");
 
     // ---- My courses -------------------------------------------------------
 
@@ -45,22 +53,10 @@ public class InstructorServiceImpl implements InstructorService {
                 throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
                         "You can only see your own courses.");
             }
-            String sql = "SELECT c.Course_ID, c.CName, c.Credits, t.Semester, " +
-                    "(SELECT COUNT(DISTINCT r.User_ID) FROM REGISTRATION r " +
-                    "   JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID WHERE e.Course_ID = c.Course_ID) AS students, " +
-                    "(SELECT COUNT(*) FROM EXAMINATION e2 WHERE e2.Course_ID = c.Course_ID) AS exams " +
-                    "FROM TEACH t JOIN COURSE c ON c.Course_ID = t.Course_ID " +
-                    "WHERE t.User_ID = ? ORDER BY c.CName, c.Course_ID";
             List<TeachingCourse> out = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setInt(1, instructorId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        out.add(new TeachingCourse(rs.getInt("Course_ID"), rs.getString("CName"),
-                                rs.getInt("Credits"), rs.getString("Semester"),
-                                rs.getInt("students"), rs.getInt("exams")));
-                    }
-                }
+            for (CourseDAO.TeachingRow r : CourseDAO.listTeaching(conn, instructorId)) {
+                out.add(new TeachingCourse(r.courseId(), r.name(), r.credits(), r.semester(),
+                        r.students(), r.exams()));
             }
             return out;
         });
@@ -72,25 +68,12 @@ public class InstructorServiceImpl implements InstructorService {
     public List<ExamRow> listExams(int courseId) throws ServiceException {
         return Db.run(conn -> {
             checkTeaches(conn, courseId);
-            String paper = " FROM CONTAINS ct WHERE ct.Exam_ID = e.Exam_ID AND ct.PaperID = " +
-                    "(SELECT MIN(p.PaperID) FROM PAPER p WHERE p.Exam_ID = e.Exam_ID)";
-            String sql = "SELECT e.Exam_ID, e.Title, e.Exam_date, e.Duration, e.Status, " +
-                    "(SELECT COUNT(*)" + paper + ") AS question_count, " +
-                    "(SELECT COALESCE(SUM(ct.Marks), 0)" + paper + ") AS total_marks " +
-                    "FROM EXAMINATION e WHERE e.Course_ID = ? " +
-                    "ORDER BY (e.Exam_date IS NULL), e.Exam_date DESC, e.Exam_ID DESC";
             LocalDateTime now = LocalDateTime.now();
             List<ExamRow> out = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        LocalDateTime date = toLdt(rs.getTimestamp("Exam_date"));
-                        out.add(new ExamRow(rs.getInt("Exam_ID"), rs.getString("Title"), date,
-                                rs.getInt("question_count"), rs.getBigDecimal("total_marks"),
-                                status(rs.getString("Status"), date, rs.getInt("Duration"), now)));
-                    }
-                }
+            for (ExamDAO.ListRow r : ExamDAO.list(conn, courseId)) {
+                LocalDateTime date = toLdt(r.date());
+                out.add(new ExamRow(r.examId(), r.title(), date, r.questionCount(), r.totalMarks(),
+                        status(r.status(), date, r.duration(), now)));
             }
             return out;
         });
@@ -99,50 +82,18 @@ public class InstructorServiceImpl implements InstructorService {
     @Override
     public ExamDetail getExam(int examId) throws ServiceException {
         return Db.run(conn -> {
-            int courseId = courseOfExam(conn, examId);
-            checkTeaches(conn, courseId);
-            ExamDetail head;
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT Title, Exam_date, Duration, Pass_mark, Max_attempts, Status " +
-                    "FROM EXAMINATION WHERE Exam_ID = ?")) {
-                ps.setInt(1, examId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    rs.next();
-                    LocalDateTime date = toLdt(rs.getTimestamp("Exam_date"));
-                    int duration = rs.getInt("Duration");
-                    head = new ExamDetail(examId, courseId, rs.getString("Title"), date, duration,
-                            rs.getBigDecimal("Pass_mark"), rs.getInt("Max_attempts"),
-                            status(rs.getString("Status"), date, duration, LocalDateTime.now()),
-                            List.of());
-                }
-            }
+            ExamDAO.Head h = requireExam(conn, examId);
+            checkTeaches(conn, h.courseId());
+            LocalDateTime date = toLdt(h.date());
 
             Map<Integer, List<PaperQuestion>> byPaper = new LinkedHashMap<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT PaperID FROM PAPER WHERE Exam_ID = ? ORDER BY PaperID")) {
-                ps.setInt(1, examId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        byPaper.put(rs.getInt(1), new ArrayList<>());
-                    }
-                }
+            for (Integer paperId : ExamDAO.paperIds(conn, examId)) {
+                byPaper.put(paperId, new ArrayList<>());
             }
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT ct.PaperID, ct.Quest_ID, ct.QuestionOrder, ct.Marks, q.Content, " +
-                    "(m.Quest_ID IS NOT NULL) AS is_mcq " +
-                    "FROM CONTAINS ct JOIN QUESTION q ON q.Quest_ID = ct.Quest_ID " +
-                    "LEFT JOIN MCQ m ON m.Quest_ID = ct.Quest_ID " +
-                    "WHERE ct.Exam_ID = ? ORDER BY ct.PaperID, ct.QuestionOrder, ct.Quest_ID")) {
-                ps.setInt(1, examId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        byPaper.computeIfAbsent(rs.getInt("PaperID"), k -> new ArrayList<>())
-                                .add(new PaperQuestion(rs.getInt("Quest_ID"), rs.getInt("QuestionOrder"),
-                                        rs.getString("Content"),
-                                        rs.getBoolean("is_mcq") ? QuestionType.MCQ : QuestionType.SHORT_ANSWER,
-                                        rs.getBigDecimal("Marks")));
-                    }
-                }
+            for (ExamDAO.PaperQuestionRow q : ExamDAO.paperQuestions(conn, examId)) {
+                byPaper.computeIfAbsent(q.paperId(), k -> new ArrayList<>())
+                        .add(new PaperQuestion(q.questionId(), q.order(), q.content(),
+                                q.mcq() ? QuestionType.MCQ : QuestionType.SHORT_ANSWER, q.marks()));
             }
             List<PaperDetail> papers = new ArrayList<>();
             byPaper.forEach((paperId, qs) -> {
@@ -152,8 +103,8 @@ public class InstructorServiceImpl implements InstructorService {
                 }
                 papers.add(new PaperDetail(paperId, paperId, qs, total));
             });
-            return new ExamDetail(head.examId(), head.courseId(), head.title(), head.examDate(),
-                    head.durationMin(), head.passMark(), head.maxAttempts(), head.status(), papers);
+            return new ExamDetail(examId, h.courseId(), h.title(), date, h.duration(), h.passMark(),
+                    h.maxAttempts(), status(h.status(), date, h.duration(), LocalDateTime.now()), papers);
         });
     }
 
@@ -186,86 +137,37 @@ public class InstructorServiceImpl implements InstructorService {
         Timestamp date = d.examDate() == null ? null : Timestamp.valueOf(d.examDate().withNano(0));
 
         return Db.run(conn -> Db.tx(conn, c -> {
-            try (PreparedStatement ps = c.prepareStatement("SELECT 1 FROM COURSE WHERE Course_ID = ?")) {
-                ps.setInt(1, d.courseId());
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Course not found.");
-                    }
-                }
+            if (!CourseDAO.exists(c, d.courseId())) {
+                throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Course not found.");
             }
             checkTeaches(c, d.courseId());
 
             if (d.examId() == null) {
-                try (PreparedStatement ps = c.prepareStatement(
-                        "INSERT INTO EXAMINATION (Title, Exam_date, Duration, Pass_mark, Max_attempts, " +
-                        "Course_ID, Status) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT')",
-                        Statement.RETURN_GENERATED_KEYS)) {
-                    ps.setString(1, title);
-                    ps.setTimestamp(2, date);
-                    ps.setInt(3, d.durationMin());
-                    ps.setBigDecimal(4, d.passMark());
-                    ps.setInt(5, d.maxAttempts());
-                    ps.setInt(6, d.courseId());
-                    ps.executeUpdate();
-                    try (ResultSet keys = ps.getGeneratedKeys()) {
-                        if (!keys.next()) {
-                            throw new ServiceException(ServiceException.Kind.INTERNAL,
-                                    "The exam was saved but its id could not be read.");
-                        }
-                        return keys.getInt(1);
-                    }
-                }
+                return ExamDAO.insert(c, title, date, d.durationMin(), d.passMark(), d.maxAttempts(),
+                        d.courseId());
             }
 
             int examId = d.examId();
-            int oldCourse;
-            int oldDuration;
-            BigDecimal oldPass;
-            String oldStatus;
-            try (PreparedStatement ps = c.prepareStatement(
-                    "SELECT Course_ID, Duration, Pass_mark, Status FROM EXAMINATION " +
-                    "WHERE Exam_ID = ? FOR UPDATE")) {
-                ps.setInt(1, examId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Exam not found.");
-                    }
-                    oldCourse = rs.getInt("Course_ID");
-                    oldDuration = rs.getInt("Duration");
-                    oldPass = rs.getBigDecimal("Pass_mark");
-                    oldStatus = rs.getString("Status");
-                }
-            }
-            if (oldCourse != d.courseId()) {
+            ExamDAO.Head old = lockedExam(c, examId);
+            if (old.courseId() != d.courseId()) {
                 throw new ServiceException(ServiceException.Kind.VALIDATION,
                         "An exam cannot be moved to another course.");
             }
-            if (date == null && "PUBLISHED".equals(oldStatus)) {
+            if (date == null && "PUBLISHED".equals(old.status())) {
                 throw new ServiceException(ServiceException.Kind.VALIDATION,
                         "A published exam needs a date. Unpublish it first to clear the date.");
             }
-            if (countAttempts(c, examId) > 0) {
-                if (oldDuration != d.durationMin() || oldPass.compareTo(d.passMark()) != 0) {
+            if (ExamDAO.countAttempts(c, examId) > 0) {
+                if (old.duration() != d.durationMin() || old.passMark().compareTo(d.passMark()) != 0) {
                     throw new ServiceException(ServiceException.Kind.CONFLICT,
                             "Duration and pass mark cannot change after students have attempted the exam.");
                 }
-                if (d.maxAttempts() < mostAttemptsByOneStudent(c, examId)) {
+                if (d.maxAttempts() < ExamDAO.mostAttemptsByOneStudent(c, examId)) {
                     throw new ServiceException(ServiceException.Kind.CONFLICT,
                             "Maximum attempts is lower than what a student has already used.");
                 }
             }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE EXAMINATION SET Title = ?, Exam_date = ?, Duration = ?, Pass_mark = ?, " +
-                    "Max_attempts = ? WHERE Exam_ID = ?")) {
-                ps.setString(1, title);
-                ps.setTimestamp(2, date);
-                ps.setInt(3, d.durationMin());
-                ps.setBigDecimal(4, d.passMark());
-                ps.setInt(5, d.maxAttempts());
-                ps.setInt(6, examId);
-                ps.executeUpdate();
-            }
+            ExamDAO.update(c, examId, title, date, d.durationMin(), d.passMark(), d.maxAttempts());
             return examId;
         }));
     }
@@ -273,16 +175,13 @@ public class InstructorServiceImpl implements InstructorService {
     @Override
     public void deleteExam(int examId) throws ServiceException {
         Db.run(conn -> Db.tx(conn, c -> {
-            checkTeaches(c, courseOfExam(c, examId));
-            if (countAttempts(c, examId) > 0) {
+            checkTeaches(c, requireExam(c, examId).courseId());
+            if (ExamDAO.countAttempts(c, examId) > 0) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "Students have already attempted this exam, so it cannot be deleted.");
             }
-            // FK-safe order. Registrations without attempts are removed with the exam.
-            exec(c, "DELETE FROM CONTAINS WHERE Exam_ID = ?", examId);
-            exec(c, "DELETE FROM PAPER WHERE Exam_ID = ?", examId);
-            exec(c, "DELETE FROM REGISTRATION WHERE Exam_ID = ?", examId);
-            exec(c, "DELETE FROM EXAMINATION WHERE Exam_ID = ?", examId);
+            // Registrations without attempts are removed with the exam.
+            ExamDAO.deleteWithPapers(c, examId);
             return null;
         }));
     }
@@ -294,40 +193,27 @@ public class InstructorServiceImpl implements InstructorService {
                     "Only Draft or Published can be set. Completed is worked out from the date.");
         }
         Db.run(conn -> Db.tx(conn, c -> {
-            checkTeaches(c, courseOfExam(c, examId));
+            ExamDAO.Head h = lockedExam(c, examId);
+            checkTeaches(c, h.courseId());
             if (status == ExamStatus.PUBLISHED) {
-                Timestamp date = null;
-                try (PreparedStatement ps = c.prepareStatement(
-                        "SELECT Exam_date FROM EXAMINATION WHERE Exam_ID = ? FOR UPDATE")) {
-                    ps.setInt(1, examId);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        rs.next();
-                        date = rs.getTimestamp(1);
-                    }
-                }
-                if (date == null) {
+                if (h.date() == null) {
                     throw new ServiceException(ServiceException.Kind.VALIDATION,
                             "Set a date for the exam before publishing it.");
                 }
-                if (countPaperQuestions(c, examId) == 0) {
+                if (ExamDAO.countPaperQuestions(c, examId) == 0) {
                     throw new ServiceException(ServiceException.Kind.VALIDATION,
                             "Build a paper with at least one question before publishing.");
                 }
-            } else if (countAttempts(c, examId) > 0) {
+            } else if (ExamDAO.countAttempts(c, examId) > 0) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "Students have already attempted this exam, so it cannot go back to draft.");
             }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE EXAMINATION SET Status = ? WHERE Exam_ID = ?")) {
-                ps.setString(1, status == ExamStatus.PUBLISHED ? "PUBLISHED" : "DRAFT");
-                ps.setInt(2, examId);
-                ps.executeUpdate();
-            }
+            ExamDAO.setStatus(c, examId, status == ExamStatus.PUBLISHED ? "PUBLISHED" : "DRAFT");
             return null;
         }));
     }
 
-    // ---- Build your paper (patch 04) ---------------------------------------
+    // ---- Build your paper -------------------------------------------------
 
     @Override
     public int savePaper(PaperDraft d) throws ServiceException {
@@ -345,8 +231,7 @@ public class InstructorServiceImpl implements InstructorService {
                 throw new ServiceException(ServiceException.Kind.VALIDATION,
                         "The same question is in the paper twice.");
             }
-            if (q.marks() == null || q.marks().signum() <= 0
-                    || q.marks().compareTo(MAX_MARKS) > 0) {
+            if (q.marks() == null || q.marks().signum() <= 0 || q.marks().compareTo(MAX_MARKS) > 0) {
                 throw new ServiceException(ServiceException.Kind.VALIDATION,
                         "Marks must be greater than 0 and at most 9999.99.");
             }
@@ -356,14 +241,13 @@ public class InstructorServiceImpl implements InstructorService {
         ordered.sort(Comparator.comparingInt(PaperQuestionDraft::order));
 
         return Db.run(conn -> Db.tx(conn, c -> {
-            int courseId = courseOfExam(c, d.examId());
-            checkTeaches(c, courseId);
-            lockExam(c, d.examId());
-            if (countAttempts(c, d.examId()) > 0) {
+            ExamDAO.Head h = lockedExam(c, d.examId());
+            checkTeaches(c, h.courseId());
+            if (ExamDAO.countAttempts(c, d.examId()) > 0) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "Students have already attempted this exam, so its paper cannot change.");
             }
-            Set<Integer> allowed = questionIdsOfCourse(c, courseId);
+            Set<Integer> allowed = CourseDAO.questionIds(c, h.courseId());
             for (PaperQuestionDraft q : ordered) {
                 if (!allowed.contains(q.questionId())) {
                     throw new ServiceException(ServiceException.Kind.VALIDATION,
@@ -373,62 +257,35 @@ public class InstructorServiceImpl implements InstructorService {
 
             int paperId;
             if (d.paperKey() == null) {
-                paperId = scalar(c, "SELECT COALESCE(MAX(PaperID), 0) + 1 FROM PAPER WHERE Exam_ID = ?",
-                        d.examId());
-                try (PreparedStatement ps = c.prepareStatement(
-                        "INSERT INTO PAPER (PaperID, Exam_ID) VALUES (?, ?)")) {
-                    ps.setInt(1, paperId);
-                    ps.setInt(2, d.examId());
-                    ps.executeUpdate();
-                }
+                paperId = PaperDAO.nextPaperId(c, d.examId());
+                PaperDAO.insert(c, d.examId(), paperId);
             } else {
                 paperId = d.paperKey();
-                if (scalar2(c, "SELECT COUNT(*) FROM PAPER WHERE Exam_ID = ? AND PaperID = ?",
-                        d.examId(), paperId) == 0) {
+                if (!PaperDAO.exists(c, d.examId(), paperId)) {
                     throw new ServiceException(ServiceException.Kind.NOT_FOUND,
                             "That paper does not belong to this exam.");
                 }
-                try (PreparedStatement ps = c.prepareStatement(
-                        "DELETE FROM CONTAINS WHERE Exam_ID = ? AND PaperID = ?")) {
-                    ps.setInt(1, d.examId());
-                    ps.setInt(2, paperId);
-                    ps.executeUpdate();
-                }
+                PaperDAO.clear(c, d.examId(), paperId);
             }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO CONTAINS (Quest_ID, PaperID, Exam_ID, QuestionOrder, Marks) " +
-                    "VALUES (?, ?, ?, ?, ?)")) {
-                int order = 1;
-                for (PaperQuestionDraft q : ordered) {
-                    ps.setInt(1, q.questionId());
-                    ps.setInt(2, paperId);
-                    ps.setInt(3, d.examId());
-                    ps.setInt(4, order++);
-                    ps.setBigDecimal(5, q.marks());
-                    ps.addBatch();
-                }
-                ps.executeBatch();
+            List<PaperDAO.Item> items = new ArrayList<>();
+            int order = 1;
+            for (PaperQuestionDraft q : ordered) {
+                items.add(new PaperDAO.Item(q.questionId(), order++, q.marks()));
             }
+            PaperDAO.addQuestions(c, d.examId(), paperId, items);
             return paperId;
         }));
     }
 
-    // ---- Question bank (patch 04) ------------------------------------------
+    // ---- Question bank ----------------------------------------------------
 
     @Override
     public List<TopicOption> listTopics(int courseId) throws ServiceException {
         return Db.run(conn -> {
             checkTeaches(conn, courseId);
             List<TopicOption> out = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT t.Topic_ID, t.Content FROM COVERS cv JOIN TOPIC t ON t.Topic_ID = cv.Topic_ID " +
-                    "WHERE cv.Course_ID = ? ORDER BY t.Content, t.Topic_ID")) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        out.add(new TopicOption(rs.getInt(1), rs.getString(2)));
-                    }
-                }
+            for (CourseDAO.TopicRow t : CourseDAO.listTopics(conn, courseId)) {
+                out.add(new TopicOption(t.topicId(), t.name()));
             }
             return out;
         });
@@ -440,58 +297,18 @@ public class InstructorServiceImpl implements InstructorService {
         int size = Math.max(1, Math.min(pageSize, 200));
         int pageNo = Math.max(1, page);
         QuestionBankFilter filter = f == null ? QuestionBankFilter.none() : f;
+        Boolean mcq = filter.type() == null ? null : filter.type() == QuestionType.MCQ;
 
         return Db.run(conn -> {
             checkTeaches(conn, courseId);
-            StringBuilder from = new StringBuilder(
-                    " FROM QUESTION q JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
-                    "JOIN COVERS cv ON cv.Topic_ID = q.Topic_ID AND cv.Course_ID = ? " +
-                    "LEFT JOIN MCQ m ON m.Quest_ID = q.Quest_ID WHERE 1 = 1");
-            List<Object> params = new ArrayList<>();
-            params.add(courseId);
-            if (filter.keyword() != null && !filter.keyword().isBlank()) {
-                from.append(" AND q.Content LIKE ? ESCAPE '\\\\'");
-                params.add("%" + likeEscape(filter.keyword().trim()) + "%");
-            }
-            if (filter.topicId() != null) {
-                from.append(" AND q.Topic_ID = ?");
-                params.add(filter.topicId());
-            }
-            if (filter.type() == QuestionType.MCQ) {
-                from.append(" AND m.Quest_ID IS NOT NULL");
-            } else if (filter.type() == QuestionType.SHORT_ANSWER) {
-                from.append(" AND m.Quest_ID IS NULL");
-            }
-            if (filter.difficulty() != null) {
-                from.append(" AND q.Difficulty = ?");
-                params.add(filter.difficulty());
-            }
-
-            long total;
-            try (PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*)" + from)) {
-                bind(ps, params, 0);
-                try (ResultSet rs = ps.executeQuery()) {
-                    rs.next();
-                    total = rs.getLong(1);
-                }
-            }
+            QuestionDAO.SearchResult res = QuestionDAO.search(conn, courseId, filter.keyword(),
+                    filter.topicId(), mcq, filter.difficulty(), size, (long) (pageNo - 1) * size);
             List<QuestionBankItem> items = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT q.Quest_ID, q.Content, q.Difficulty, t.Content AS topic, " +
-                    "(m.Quest_ID IS NOT NULL) AS is_mcq" + from +
-                    " ORDER BY q.Quest_ID DESC LIMIT ? OFFSET ?")) {
-                int next = bind(ps, params, 0);
-                ps.setInt(next + 1, size);
-                ps.setLong(next + 2, (long) (pageNo - 1) * size);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        items.add(new QuestionBankItem(rs.getInt("Quest_ID"), rs.getString("Content"),
-                                rs.getBoolean("is_mcq") ? QuestionType.MCQ : QuestionType.SHORT_ANSWER,
-                                rs.getInt("Difficulty"), rs.getString("topic")));
-                    }
-                }
+            for (QuestionDAO.BankRow r : res.rows()) {
+                items.add(new QuestionBankItem(r.questionId(), r.content(),
+                        r.mcq() ? QuestionType.MCQ : QuestionType.SHORT_ANSWER, r.difficulty(), r.topic()));
             }
-            return new Page<>(items, pageNo, size, total);
+            return new Page<>(items, pageNo, size, res.total());
         });
     }
 
@@ -511,7 +328,7 @@ public class InstructorServiceImpl implements InstructorService {
                 throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
                         "You can only save questions as yourself.");
             }
-            if (scalar(c, "SELECT COUNT(*) FROM INSTRUCTOR WHERE User_ID = ?", instructorId) == 0) {
+            if (!UserDAO.isInstructor(c, instructorId)) {
                 throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
                         "Only instructors can write questions.");
             }
@@ -519,40 +336,18 @@ public class InstructorServiceImpl implements InstructorService {
 
             String content = d.content().trim();
             if (d.questionId() == null) {
-                int id;
-                try (PreparedStatement ps = c.prepareStatement(
-                        "INSERT INTO QUESTION (Content, Difficulty, Topic_ID, User_ID) VALUES (?, ?, ?, ?)",
-                        Statement.RETURN_GENERATED_KEYS)) {
-                    ps.setString(1, content);
-                    ps.setInt(2, d.difficulty());
-                    ps.setInt(3, d.topicId());
-                    ps.setInt(4, instructorId);
-                    ps.executeUpdate();
-                    try (ResultSet keys = ps.getGeneratedKeys()) {
-                        if (!keys.next()) {
-                            throw new ServiceException(ServiceException.Kind.INTERNAL,
-                                    "The question was saved but its id could not be read.");
-                        }
-                        id = keys.getInt(1);
-                    }
-                }
+                int id = QuestionDAO.insert(c, content, d.difficulty(), d.topicId(), instructorId);
                 insertSubtype(c, id, d);
                 return id;
             }
 
             int id = d.questionId();
             checkQuestionAccess(c, id);
-            try (PreparedStatement ps = c.prepareStatement(
-                    "SELECT Quest_ID FROM QUESTION WHERE Quest_ID = ? FOR UPDATE")) {
-                ps.setInt(1, id);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
-                    }
-                }
+            if (!QuestionDAO.lock(c, id)) {
+                throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
             }
             QuestionDraft old = loadQuestion(c, id);
-            boolean answered = scalar(c, "SELECT COUNT(*) FROM ANSWER WHERE Quest_ID = ?", id) > 0;
+            boolean answered = QuestionDAO.answerCount(c, id) > 0;
             boolean sameBody = old.type() == d.type() && old.topicId() == d.topicId()
                     && sameOptions(old.options(), d.options())
                     && Objects.equals(trimOrNull(old.answerKey()), trimOrNull(d.answerKey()));
@@ -561,16 +356,9 @@ public class InstructorServiceImpl implements InstructorService {
                         "Students have already answered this question. You can fix the wording " +
                         "and difficulty, but not its type, topic, options or answer key.");
             }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE QUESTION SET Content = ?, Difficulty = ?, Topic_ID = ? WHERE Quest_ID = ?")) {
-                ps.setString(1, content);
-                ps.setInt(2, d.difficulty());
-                ps.setInt(3, d.topicId());
-                ps.setInt(4, id);
-                ps.executeUpdate();
-            }
+            QuestionDAO.update(c, id, content, d.difficulty(), d.topicId());
             if (!sameBody) {
-                deleteSubtype(c, id);
+                QuestionDAO.deleteSubtype(c, id);
                 insertSubtype(c, id, d);
             }
             return id;
@@ -581,37 +369,28 @@ public class InstructorServiceImpl implements InstructorService {
     public void deleteQuestion(int questionId) throws ServiceException {
         Db.run(conn -> Db.tx(conn, c -> {
             checkQuestionAccess(c, questionId);
-            if (scalar(c, "SELECT COUNT(*) FROM QUESTION WHERE Quest_ID = ?", questionId) == 0) {
+            if (!QuestionDAO.exists(c, questionId)) {
                 throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
             }
-            if (scalar(c, "SELECT COUNT(*) FROM ANSWER WHERE Quest_ID = ?", questionId) > 0) {
+            if (QuestionDAO.answerCount(c, questionId) > 0) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "Students have already answered this question, so it cannot be deleted.");
             }
-            if (scalar(c, "SELECT COUNT(*) FROM CONTAINS ct JOIN EXAMINATION e ON e.Exam_ID = ct.Exam_ID " +
-                    "WHERE ct.Quest_ID = ? AND e.Status = 'PUBLISHED'", questionId) > 0) {
+            if (QuestionDAO.publishedExamUseCount(c, questionId) > 0) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "This question is in a published exam. Unpublish the exam or change its paper first.");
             }
-            exec(c, "DELETE FROM CONTAINS WHERE Quest_ID = ?", questionId); // draft exams only
-            deleteSubtype(c, questionId);
-            exec(c, "DELETE FROM QUESTION WHERE Quest_ID = ?", questionId);
+            QuestionDAO.removeFromAllPapers(c, questionId); // draft exams only
+            QuestionDAO.deleteSubtype(c, questionId);
+            QuestionDAO.delete(c, questionId);
             return null;
         }));
     }
 
-    // ---- Statistics tab (patch 05) -----------------------------------------
+    // ---- Statistics tab ---------------------------------------------------
     //
-    // D09 (chosen here): per student and exam, the BEST finished attempt counts
-    // (highest score, later attempt wins a tie). Finished = EndTime > StartTime.
-    // Exams that are still drafts are ignored everywhere on this tab.
-
-    private record Att(int regisId, int attemptNo, int userId, int examId,
-                       BigDecimal score, BigDecimal max) {
-        String key() {
-            return regisId + ":" + attemptNo;
-        }
-    }
+    // D09 (chosen): per student and exam the BEST finished attempt counts (highest score, a later
+    // attempt wins a tie). Draft exams are ignored everywhere on this tab.
 
     @Override
     public CourseStatistics getStatistics(int courseId) throws ServiceException {
@@ -620,56 +399,31 @@ public class InstructorServiceImpl implements InstructorService {
 
             int completed = 0;
             LocalDateTime now = LocalDateTime.now();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT Status, Exam_date, Duration FROM EXAMINATION WHERE Course_ID = ?")) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if (status(rs.getString(1), toLdt(rs.getTimestamp(2)), rs.getInt(3), now)
-                                == ExamStatus.COMPLETED) {
-                            completed++;
-                        }
-                    }
+            for (StatsDAO.ExamTime t : StatsDAO.examTimes(conn, courseId)) {
+                if (status(t.status(), toLdt(t.date()), t.duration(), now) == ExamStatus.COMPLETED) {
+                    completed++;
                 }
             }
 
             Set<String> best = new HashSet<>();
-            bestAttempts(conn, courseId).values().forEach(a -> best.add(a.key()));
+            for (StatsDAO.AttemptTotal a : bestAttempts(StatsDAO.attemptTotals(conn, courseId)).values()) {
+                best.add(a.regisId() + ":" + a.attemptNo());
+            }
 
-            // One row per (counted attempt, question): marks available and marks earned.
-            Map<String, BigDecimal[]> byTopic = new LinkedHashMap<>(); // topic -> {earned, max}
-            Map<Integer, Object[]> byQuestion = new LinkedHashMap<>(); // id -> {content, correct, total}
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT a.RegisID, a.Attempt_no, q.Quest_ID, q.Content, t.Content AS topic, ct.Marks, " +
-                    "COALESCE(ans.MarkAwarded, 0) AS earned " +
-                    "FROM ATTEMPT a " +
-                    "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
-                    "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                    "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
-                    "JOIN QUESTION q ON q.Quest_ID = ct.Quest_ID " +
-                    "JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
-                    "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
-                    "  AND ans.RegisID = a.RegisID " +
-                    "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime")) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        if (!best.contains(rs.getInt(1) + ":" + rs.getInt(2))) {
-                            continue;
-                        }
-                        BigDecimal marks = rs.getBigDecimal("Marks");
-                        BigDecimal earned = rs.getBigDecimal("earned");
-                        BigDecimal[] t = byTopic.computeIfAbsent(rs.getString("topic"),
-                                k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
-                        t[0] = t[0].add(earned);
-                        t[1] = t[1].add(marks);
-                        Object[] q = byQuestion.computeIfAbsent(rs.getInt("Quest_ID"),
-                                k -> new Object[]{null, 0, 0});
-                        q[0] = rs.getString("Content");
-                        q[1] = (Integer) q[1] + (earned.compareTo(marks) >= 0 ? 1 : 0);
-                        q[2] = (Integer) q[2] + 1;
-                    }
+            Map<String, BigDecimal[]> byTopic = new LinkedHashMap<>();  // topic -> {earned, max}
+            Map<Integer, Object[]> byQuestion = new LinkedHashMap<>();  // id -> {content, correct, total}
+            for (StatsDAO.QuestionMark m : StatsDAO.questionMarks(conn, courseId)) {
+                if (!best.contains(m.regisId() + ":" + m.attemptNo())) {
+                    continue;
                 }
+                BigDecimal[] t = byTopic.computeIfAbsent(m.topic(),
+                        k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                t[0] = t[0].add(m.earned());
+                t[1] = t[1].add(m.marks());
+                Object[] q = byQuestion.computeIfAbsent(m.questionId(), k -> new Object[]{null, 0, 0});
+                q[0] = m.content();
+                q[1] = (Integer) q[1] + (m.earned().compareTo(m.marks()) >= 0 ? 1 : 0);
+                q[2] = (Integer) q[2] + 1;
             }
 
             List<TopicAverage> topics = new ArrayList<>();
@@ -706,42 +460,20 @@ public class InstructorServiceImpl implements InstructorService {
             checkTeaches(conn, courseId);
 
             List<ExamColumn> columns = new ArrayList<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT Exam_ID, Title FROM EXAMINATION WHERE Course_ID = ? AND Status = 'PUBLISHED' " +
-                    "ORDER BY (Exam_date IS NULL), Exam_date, Exam_ID")) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        columns.add(new ExamColumn(rs.getInt(1), rs.getString(2)));
-                    }
-                }
+            for (StatsDAO.ExamColumn e : StatsDAO.publishedExams(conn, courseId)) {
+                columns.add(new ExamColumn(e.examId(), e.title()));
             }
+            Map<String, StatsDAO.AttemptTotal> best =
+                    bestAttempts(StatsDAO.attemptTotals(conn, courseId)); // "user:exam" -> attempt
 
-            // Students who registered for at least one published exam of the course.
-            Map<Integer, String> students = new LinkedHashMap<>();
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT DISTINCT u.User_ID, u.FirstName, u.LastName FROM REGISTRATION r " +
-                    "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                    "JOIN `USER` u ON u.User_ID = r.User_ID " +
-                    "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' " +
-                    "ORDER BY u.LastName, u.FirstName, u.User_ID")) {
-                ps.setInt(1, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        students.put(rs.getInt(1), (rs.getString(2) + " " + rs.getString(3)).trim());
-                    }
-                }
-            }
-
-            Map<String, Att> best = bestAttempts(conn, courseId); // "user:exam" -> attempt
             List<StudentMarkRow> all = new ArrayList<>();
             int completedAll = 0;
-            for (Map.Entry<Integer, String> st : students.entrySet()) {
+            for (StatsDAO.StudentRow st : StatsDAO.registeredStudents(conn, courseId)) {
                 List<ExamScore> scores = new ArrayList<>();
                 BigDecimal sumPercent = BigDecimal.ZERO;
                 int done = 0;
                 for (ExamColumn col : columns) {
-                    Att a = best.get(st.getKey() + ":" + col.examId());
+                    StatsDAO.AttemptTotal a = best.get(st.userId() + ":" + col.examId());
                     if (a == null) {
                         scores.add(null);
                     } else {
@@ -756,7 +488,8 @@ public class InstructorServiceImpl implements InstructorService {
                 if (!columns.isEmpty() && done == columns.size()) {
                     completedAll++;
                 }
-                all.add(new StudentMarkRow(st.getKey(), st.getValue(), scores, avg, done, columns.size()));
+                all.add(new StudentMarkRow(st.userId(), (st.firstName() + " " + st.lastName()).trim(),
+                        scores, avg, done, columns.size()));
             }
 
             List<StudentMarkRow> shown = completedAllOnly
@@ -770,48 +503,7 @@ public class InstructorServiceImpl implements InstructorService {
         });
     }
 
-    private static final int HARDEST_LIMIT = 5;
-
-    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
-        return part.multiply(BigDecimal.valueOf(100)).divide(whole, 1, RoundingMode.HALF_UP);
-    }
-
-    /**
-     * Best finished attempt per (student, exam) for the published exams of a course.
-     * Key = "userId:examId".
-     */
-    private static Map<String, Att> bestAttempts(Connection conn, int courseId) throws SQLException {
-        Map<String, Att> best = new LinkedHashMap<>();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID, " +
-                "COALESCE(SUM(ct.Marks), 0) AS max_score, COALESCE(SUM(ans.MarkAwarded), 0) AS score " +
-                "FROM ATTEMPT a " +
-                "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
-                "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
-                "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
-                "  AND ans.RegisID = a.RegisID " +
-                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime " +
-                "GROUP BY a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID " +
-                "ORDER BY a.RegisID, a.Attempt_no")) {
-            ps.setInt(1, courseId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    Att a = new Att(rs.getInt(1), rs.getInt(2), rs.getInt(3), rs.getInt(4),
-                            rs.getBigDecimal("score"), rs.getBigDecimal("max_score"));
-                    String k = a.userId() + ":" + a.examId();
-                    Att cur = best.get(k);
-                    // rows come in attempt order, so >= lets the later attempt win a tie
-                    if (cur == null || a.score().compareTo(cur.score()) >= 0) {
-                        best.put(k, a);
-                    }
-                }
-            }
-        }
-        return best;
-    }
-
-    // ---- Helpers ----------------------------------------------------------
+    // ---- Rules and helpers ------------------------------------------------
 
     private static LocalDateTime toLdt(Timestamp ts) {
         return ts == null ? null : ts.toLocalDateTime();
@@ -828,17 +520,38 @@ public class InstructorServiceImpl implements InstructorService {
         return ExamStatus.PUBLISHED;
     }
 
-    private static int courseOfExam(Connection conn, int examId) throws SQLException, ServiceException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT Course_ID FROM EXAMINATION WHERE Exam_ID = ?")) {
-            ps.setInt(1, examId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) {
-                    throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Exam not found.");
-                }
-                return rs.getInt(1);
+    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
+        return part.multiply(BigDecimal.valueOf(100)).divide(whole, 1, RoundingMode.HALF_UP);
+    }
+
+    /** Best finished attempt per (student, exam); input must be ordered by attempt. Key = "userId:examId". */
+    private static Map<String, StatsDAO.AttemptTotal> bestAttempts(List<StatsDAO.AttemptTotal> totals) {
+        Map<String, StatsDAO.AttemptTotal> best = new LinkedHashMap<>();
+        for (StatsDAO.AttemptTotal a : totals) {
+            String k = a.userId() + ":" + a.examId();
+            StatsDAO.AttemptTotal cur = best.get(k);
+            // >= lets the later attempt win a tie
+            if (cur == null || a.score().compareTo(cur.score()) >= 0) {
+                best.put(k, a);
             }
         }
+        return best;
+    }
+
+    private static ExamDAO.Head requireExam(Connection conn, int examId) throws SQLException, ServiceException {
+        ExamDAO.Head h = ExamDAO.find(conn, examId);
+        if (h == null) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Exam not found.");
+        }
+        return h;
+    }
+
+    private static ExamDAO.Head lockedExam(Connection conn, int examId) throws SQLException, ServiceException {
+        ExamDAO.Head h = ExamDAO.findForUpdate(conn, examId);
+        if (h == null) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Exam not found.");
+        }
+        return h;
     }
 
     /** When someone is logged in, only an instructor who teaches the course may continue. */
@@ -847,60 +560,39 @@ public class InstructorServiceImpl implements InstructorService {
             return;
         }
         AuthService.UserAccount u = Session.user();
-        boolean ok = false;
-        if (u.role() == AuthService.Role.INSTRUCTOR) {
-            try (PreparedStatement ps = conn.prepareStatement(
-                    "SELECT 1 FROM TEACH WHERE User_ID = ? AND Course_ID = ?")) {
-                ps.setInt(1, u.userId());
-                ps.setInt(2, courseId);
-                try (ResultSet rs = ps.executeQuery()) {
-                    ok = rs.next();
-                }
-            }
+        if (u.role() != AuthService.Role.INSTRUCTOR || !CourseDAO.teaches(conn, u.userId(), courseId)) {
+            throw new ServiceException(ServiceException.Kind.UNAUTHORIZED, "You do not teach this course.");
         }
-        if (!ok) {
+    }
+
+    /** The instructor must teach at least one course that covers the topic. */
+    private static void checkTopicAccess(Connection conn, int topicId, int instructorId)
+            throws SQLException, ServiceException {
+        if (!CourseDAO.topicExists(conn, topicId)) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Topic not found.");
+        }
+        if (!CourseDAO.teachesTopic(conn, instructorId, topicId)) {
             throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
-                    "You do not teach this course.");
+                    "You do not teach a course that covers this topic.");
         }
     }
 
-    private static int countAttempts(Connection conn, int examId) throws SQLException {
-        return scalar(conn, "SELECT COUNT(*) FROM ATTEMPT WHERE Exam_ID = ?", examId);
-    }
-
-    private static int mostAttemptsByOneStudent(Connection conn, int examId) throws SQLException {
-        return scalar(conn, "SELECT COALESCE(MAX(c), 0) FROM " +
-                "(SELECT COUNT(*) AS c FROM ATTEMPT WHERE Exam_ID = ? GROUP BY RegisID) x", examId);
-    }
-
-    /** Questions in the exam's lowest-numbered paper (the one students get). */
-    private static int countPaperQuestions(Connection conn, int examId) throws SQLException {
-        return scalar(conn, "SELECT COUNT(*) FROM CONTAINS ct WHERE ct.Exam_ID = ? AND ct.PaperID = " +
-                "(SELECT MIN(p.PaperID) FROM PAPER p WHERE p.Exam_ID = ct.Exam_ID)", examId);
-    }
-
-    private static int scalar(Connection conn, String sql, int param) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, param);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : 0;
-            }
+    /** Reading/changing a question needs a course you teach that covers its topic. */
+    private static void checkQuestionAccess(Connection conn, int questionId)
+            throws SQLException, ServiceException {
+        if (!Session.isLoggedIn()) {
+            return;
         }
-    }
-
-    private static void exec(Connection conn, String sql, int param) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, param);
-            ps.executeUpdate();
+        Integer topic = QuestionDAO.topicOf(conn, questionId);
+        if (topic == null) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
         }
+        AuthService.UserAccount u = Session.user();
+        if (u.role() != AuthService.Role.INSTRUCTOR) {
+            throw new ServiceException(ServiceException.Kind.UNAUTHORIZED, "Only instructors can do this.");
+        }
+        checkTopicAccess(conn, topic, u.userId());
     }
-
-    // ---- Helpers for patch 04 ---------------------------------------------
-
-    private static final int MAX_PAPER_QUESTIONS = 200;
-    private static final int MAX_QUESTION_CHARS = 5000;
-    private static final int MAX_OPTIONS = 10;
-    private static final BigDecimal MAX_MARKS = new BigDecimal("9999.99");
 
     private static void validateQuestion(QuestionDraft d) throws ServiceException {
         if (d == null) {
@@ -954,65 +646,31 @@ public class InstructorServiceImpl implements InstructorService {
     /** Fills MCQ + OPTIONS or SHORT_ANSWER for a question that already has its QUESTION row. */
     private static void insertSubtype(Connection c, int id, QuestionDraft d) throws SQLException {
         if (d.type() == QuestionType.MCQ) {
-            exec(c, "INSERT INTO MCQ (Quest_ID) VALUES (?)", id);
-            try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO OPTIONS (Option_no, Quest_ID, Op_Content, Bool_Correct) VALUES (?, ?, ?, ?)")) {
-                int no = 1;
-                for (OptionDraft o : d.options()) {
-                    ps.setInt(1, no++);
-                    ps.setInt(2, id);
-                    ps.setString(3, o.content().trim());
-                    ps.setInt(4, o.correct() ? 1 : 0);
-                    ps.addBatch();
-                }
-                ps.executeBatch();
+            List<QuestionDAO.OptionRow> options = new ArrayList<>();
+            for (OptionDraft o : d.options()) {
+                options.add(new QuestionDAO.OptionRow(o.content().trim(), o.correct()));
             }
+            QuestionDAO.insertMcq(c, id, options);
         } else {
-            try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO SHORT_ANSWER (Quest_ID, Answer_key) VALUES (?, ?)")) {
-                ps.setInt(1, id);
-                ps.setString(2, d.answerKey().trim());
-                ps.executeUpdate();
-            }
+            QuestionDAO.insertShortAnswer(c, id, d.answerKey().trim());
         }
-    }
-
-    private static void deleteSubtype(Connection c, int id) throws SQLException {
-        exec(c, "DELETE FROM SELECT_TABLE WHERE Quest_ID = ?", id);
-        exec(c, "DELETE FROM OPTIONS WHERE Quest_ID = ?", id);
-        exec(c, "DELETE FROM MCQ WHERE Quest_ID = ?", id);
-        exec(c, "DELETE FROM SHORT_ANSWER WHERE Quest_ID = ?", id);
     }
 
     private static QuestionDraft loadQuestion(Connection conn, int questionId)
             throws SQLException, ServiceException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT q.Content, q.Difficulty, q.Topic_ID, (m.Quest_ID IS NOT NULL) AS is_mcq, sa.Answer_key " +
-                "FROM QUESTION q LEFT JOIN MCQ m ON m.Quest_ID = q.Quest_ID " +
-                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = q.Quest_ID WHERE q.Quest_ID = ?")) {
-            ps.setInt(1, questionId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) {
-                    throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
-                }
-                boolean mcq = rs.getBoolean("is_mcq");
-                List<OptionDraft> options = new ArrayList<>();
-                if (mcq) {
-                    try (PreparedStatement ops = conn.prepareStatement(
-                            "SELECT Op_Content, Bool_Correct FROM OPTIONS WHERE Quest_ID = ? ORDER BY Option_no")) {
-                        ops.setInt(1, questionId);
-                        try (ResultSet or = ops.executeQuery()) {
-                            while (or.next()) {
-                                options.add(new OptionDraft(or.getString(1), or.getInt(2) == 1));
-                            }
-                        }
-                    }
-                }
-                return new QuestionDraft(questionId, rs.getInt("Topic_ID"),
-                        mcq ? QuestionType.MCQ : QuestionType.SHORT_ANSWER, rs.getString("Content"),
-                        rs.getInt("Difficulty"), options, mcq ? null : rs.getString("Answer_key"));
+        QuestionDAO.Row r = QuestionDAO.find(conn, questionId);
+        if (r == null) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
+        }
+        List<OptionDraft> options = new ArrayList<>();
+        if (r.mcq()) {
+            for (QuestionDAO.OptionRow o : QuestionDAO.options(conn, questionId)) {
+                options.add(new OptionDraft(o.content(), o.correct()));
             }
         }
+        return new QuestionDraft(questionId, r.topicId(),
+                r.mcq() ? QuestionType.MCQ : QuestionType.SHORT_ANSWER, r.content(), r.difficulty(),
+                options, r.mcq() ? null : r.answerKey());
     }
 
     private static boolean sameOptions(List<OptionDraft> a, List<OptionDraft> b) {
@@ -1032,96 +690,5 @@ public class InstructorServiceImpl implements InstructorService {
 
     private static String trimOrNull(String s) {
         return s == null ? null : s.trim();
-    }
-
-    /** Every question whose topic the course covers. */
-    private static Set<Integer> questionIdsOfCourse(Connection conn, int courseId) throws SQLException {
-        Set<Integer> ids = new HashSet<>();
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT q.Quest_ID FROM QUESTION q JOIN COVERS cv ON cv.Topic_ID = q.Topic_ID " +
-                "WHERE cv.Course_ID = ?")) {
-            ps.setInt(1, courseId);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    ids.add(rs.getInt(1));
-                }
-            }
-        }
-        return ids;
-    }
-
-    /** The logged-in instructor must teach at least one course that covers the topic. */
-    private static void checkTopicAccess(Connection conn, int topicId, int instructorId)
-            throws SQLException, ServiceException {
-        if (scalar(conn, "SELECT COUNT(*) FROM TOPIC WHERE Topic_ID = ?", topicId) == 0) {
-            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Topic not found.");
-        }
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT 1 FROM COVERS cv JOIN TEACH t ON t.Course_ID = cv.Course_ID " +
-                "WHERE cv.Topic_ID = ? AND t.User_ID = ? LIMIT 1")) {
-            ps.setInt(1, topicId);
-            ps.setInt(2, instructorId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) {
-                    throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
-                            "You do not teach a course that covers this topic.");
-                }
-            }
-        }
-    }
-
-    /** Reading/changing a question needs a course you teach that covers its topic. */
-    private static void checkQuestionAccess(Connection conn, int questionId)
-            throws SQLException, ServiceException {
-        if (!Session.isLoggedIn()) {
-            return;
-        }
-        Integer topic = null;
-        try (PreparedStatement ps = conn.prepareStatement("SELECT Topic_ID FROM QUESTION WHERE Quest_ID = ?")) {
-            ps.setInt(1, questionId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    topic = rs.getInt(1);
-                }
-            }
-        }
-        if (topic == null) {
-            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
-        }
-        AuthService.UserAccount u = Session.user();
-        if (u.role() != AuthService.Role.INSTRUCTOR) {
-            throw new ServiceException(ServiceException.Kind.UNAUTHORIZED, "Only instructors can do this.");
-        }
-        checkTopicAccess(conn, topic, u.userId());
-    }
-
-    private static void lockExam(Connection conn, int examId) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "SELECT Exam_ID FROM EXAMINATION WHERE Exam_ID = ? FOR UPDATE")) {
-            ps.setInt(1, examId);
-            ps.executeQuery().close();
-        }
-    }
-
-    private static int scalar2(Connection conn, String sql, int a, int b) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, a);
-            ps.setInt(2, b);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : 0;
-            }
-        }
-    }
-
-    private static String likeEscape(String s) {
-        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-    }
-
-    /** Binds params starting at index 1 + offset; returns how many parameters are now bound. */
-    private static int bind(PreparedStatement ps, List<Object> params, int offset) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            ps.setObject(offset + i + 1, params.get(i));
-        }
-        return offset + params.size();
     }
 }
