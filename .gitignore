@@ -42,7 +42,3 @@ build/
 
 ### Mac OS ###
 .DS_Store
-
-### Python normalization review tools ###
-__pycache__/
-*.py[cod]

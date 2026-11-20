@@ -1,106 +1,41 @@
-# Kế hoạch Normalization sau midterm
+# Tóm tắt Normalization — Schema 21 bảng BCNF (Nhóm 06 / Topic 20)
 
-Ngày rà soát: 17/11/2026 (Việt Nam). Mốc repo: `main@3fb78481aa4c669ed836472d6bd68a1797ba7cae`.
+* **Trạng thái & Phạm vi (20/11/2026):** Đây là gói đóng góp SQL và tóm tắt kỹ thuật đã kiểm chứng trên MySQL `8.4.11` cô lập cho phương án đề xuất **21 bảng BCNF** (`#7B` + `#2B1`). Tài liệu phân tích chi tiết (bảng 21 quan hệ & FD, chứng minh 1NF → BCNF, ví dụ dị thường và 50 quy tắc `BR-01`–`BR-50` cho Chương 3 Final Report) được lưu riêng ở bộ file Word của nhóm để giữ repo gọn nhẹ cho code Java và SQL.
 
-Đây là gói rà soát và đề xuất của nhóm Normalization, dùng để thống nhất thiết kế với Leader, Database, Data Modelers, Query và Java. Chưa phải schema đã được nhóm phê duyệt hoặc migration cho database dùng chung.
+---
 
-## Kết luận cần hành động
+## 1. Tóm tắt kiến trúc 21 bảng BCNF (`#7B` + `#2B1`)
 
-Nhóm đã có EER và bản mapping 20 bảng. Việc tiếp theo là xác nhận các FD từ business rules, sửa khóa biểu diễn sai nghiệp vụ, chứng minh dạng chuẩn và bàn giao một schema thống nhất để Database/Query/Java triển khai. Forward engineering từ `.mwb` tạo ra DDL; nó không chứng minh FD, candidate keys, lossless join hoặc 3NF.
+* **Quy mô đối tượng DDL & ràng buộc:** `21` bảng cơ sở (tất cả đạt BCNF), `21` PK, `28` FK (toàn bộ dùng `ON UPDATE RESTRICT`; `27` FK dùng `ON DELETE RESTRICT`, riêng `user_phone.User_ID` dùng `ON DELETE CASCADE`), `4` `UNIQUE`, `28` `CHECK`, `5` Index, `3` View (`v_paper_total_marks`, `v_attempt_scores`, `v_representative_attempts`), `28` Trigger bảo vệ hai chiều và `5` Stored Procedure ACID (`sp_create_student`, `sp_create_instructor`, `sp_start_attempt`, `sp_submit_mcq_answer`, `sp_finalize_attempt`).
+* **5 thay đổi chính so với bản 20 bảng cũ (`script.sql`):**
+  1. **`select_table`:** Đổi PK thành `(Quest_ID, Attempt_no, RegisID)` (một lựa chọn mỗi câu MCQ trong một lượt thi) và dùng 2 composite FK tới `options(Option_no, Quest_ID)` và `answer(Quest_ID, Attempt_no, RegisID)`.
+  2. **`paper` & `attempt`:** Bổ sung khóa đại diện `PaperKey` (`AUTO_INCREMENT`, `UNIQUE(Exam_ID, PaperID)`), bỏ cột dư `attempt.Exam_ID` để triệt tiêu phụ thuộc hàm bộ phận `RegisID -> Exam_ID`, kèm trigger bảo đảm `paper.Exam_ID = registration.Exam_ID`.
+  3. **Tách `contains` thành `exam_question_marks` + `paper_question`:** `exam_question_marks(Exam_ID, Quest_ID, Marks)` cố định điểm tối đa theo từng kỳ thi (`#7B`), còn `paper_question(PaperKey, Quest_ID, QuestionOrder)` giữ cấu trúc đề và thứ tự câu (`UNIQUE(PaperKey, QuestionOrder)`).
+  4. **`teach`:** PK 3 cột `(User_ID, Course_ID, Semester)` với `CHECK` phân biệt hoa thường `^20[0-9]{2}-(S[12]|SU)$`.
+  5. **Chuẩn hóa tên cột & trạng thái làm bài / chờ chấm:** Thống nhất `Password_hash`, `Prerequisite_ID`, `Advanced_ID`; cho phép `attempt.EndTime`, `answer.AnswerText`, `answer.MarkAwarded` mang giá trị `NULL` khi đang làm hoặc chờ chấm. Khi gọi `sp_finalize_attempt`, mọi câu bỏ trống hoặc tự luận chỉ chứa khoảng trắng (`[[:space:]]`) đều được chấm `0.00`; `v_attempt_scores` chỉ công bố `Total_Score`, `ScorePercent` và `IsPassed` khi `IsFullyGraded = 1`.
 
-Ba việc phải chốt trước khi đóng băng schema:
+---
 
-1. Sửa khóa `select_table` theo câu hỏi và lần làm bài.
-2. Chọn thiết kế `attempt` đạt ít nhất 3NF. Giữ `Exam_ID` và thêm composite FK không giải quyết partial dependency `RegisID -> Exam_ID`.
-3. Chốt `Marks` theo paper hay cố định theo examination, vì hai cách hiểu cho hai tập FD khác nhau.
+## 2. Hướng dẫn sử dụng bộ script trong [`database/normalized_21tables/`](../../database/normalized_21tables/)
 
-## Đọc và sử dụng gói này
+| Nhóm / Mục đích | File cần dùng | Ghi chú sử dụng |
+| --- | --- | --- |
+| **Nộp bài D5 / Dựng DB mới** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Có `DROP/CREATE DATABASE online_examination`; chạy lại được nhiều lần liên tiếp với `>= 15` dòng mỗi bảng. |
+| **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần không chứa `DELIMITER`/Trigger để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
+| **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy ngay sau `02` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 test nghiệm thu (`N01–N24` + `BR-29/37/41/42/45/49`). |
+| **Team Java DAO / Service** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Gọi trực tiếp 3 Views tính điểm/xếp hạng và 5 Stored Procedures ACID; không tự tính lại logic chọn đáp án hoặc chốt bài ở tầng UI. |
+| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển dữ liệu từ `online_examination_old` sang schema 21 bảng trống tạo bởi `01`; tự `ROLLBACK` (lỗi `1644`, `0` dòng ghi) nếu tiền kiểm hoặc đối soát lossless sai lệch. |
 
-| Tài liệu / công cụ | Mục đích |
-| --- | --- |
-| [01-review-and-decisions.md](01-review-and-decisions.md) | Phát hiện có bằng chứng, quyết định cần chốt và ảnh hưởng đến các nhóm |
-| [02-fd-keys.md](02-fd-keys.md) | Bản nháp phần 5: toàn bộ 20 quan hệ, minimal cover, mọi candidate key và chứng minh |
-| [03-normalization-proofs.md](03-normalization-proofs.md) | Bản nháp phần 6: 2NF/3NF/BCNF, lossless join, dependency preservation và anomalies |
-| [04-handoff-and-tests.md](04-handoff-and-tests.md) | Hợp đồng schema đề xuất, checklist SQL/Java/Query và các test nghiệm thu |
-| [05-validation-and-ai.md](05-validation-and-ai.md) | Kết quả thực chạy, giới hạn kiểm chứng và nội dung khai báo hỗ trợ AI |
-| [fd-spec.json](fd-spec.json) | Tập FD và khóa mong đợi để kiểm tra lại khi business rules đổi |
-| [normalization_check.py](../../tools/normalization_check.py) | Closure, minimal cover, mọi candidate key và dạng chuẩn theo F+ |
-| [normalization_counterexamples.sql](../../database/review/normalization_counterexamples.sql) | Thí nghiệm MySQL bằng TEMPORARY TABLE, chứng minh lỗi khóa và sai exam |
-| [audit_baseline.sql](../../database/review/audit_baseline.sql) | Truy vấn chỉ đọc để tìm dữ liệu vi phạm trong schema hiện tại |
+---
 
-Chạy kiểm tra toán học tại thư mục gốc repo, với Python 3.10+:
+## 3. Trạng thái kiểm chứng & Đầu việc chờ nhóm chốt
 
-```text
-python tools/normalization_check.py
-python -m unittest discover -s tests -v
-```
-
-Kết quả BCNF của bản đề xuất có điều kiện: single-select MCQ, PaperKey toàn cục, teaching lặp học kỳ, Marks theo paper và các UNIQUE được chấp nhận. Kết quả này không khẳng định DDL hoặc database Aiven hiện tại đã đạt BCNF hay đã ép đủ business rules.
-
-## Trạng thái đã xác minh
-
-- `main` có Java/JDBC skeleton, README kết nối và Maven config; chưa có SQL, seed, chứng minh normalization, DAO, form hoặc query nghiệp vụ trong cây repo được kiểm tra.
-- Nhánh `Feature/java_skeleton` ở sau `main` 5 commits và không có commit đi trước. Hai PR cũ đã merge; chưa thấy work item mở trong lần đọc này.
-- README nói database dùng chung đã có 20 bảng. Chưa truy cập database đó; không suy ra nhóm chưa làm các phần chưa commit.
-- `script.sql` được cung cấp có 20 bảng, các PK/FK cơ bản; chưa có UNIQUE nghiệp vụ, CHECK, referential actions viết tường minh, dữ liệu mẫu, trigger/procedure/view hoặc test.
-- `.mwb` là nguồn model cần Data Modelers đối chiếu trực tiếp. Lần rà soát này chưa đọc được nội dung nhị phân của file; không có kết luận nó đồng bộ byte-for-byte với SQL.
-
-## Phân công đề xuất cho ba thành viên
-
-Giữ đúng vai trò đã ghi trong midterm; phân bổ dưới đây cần ba thành viên xác nhận và ghi nhận phần thực tế tự làm.
-
-| Thành viên | Phần chịu trách nhiệm chính | Người review | Sản phẩm đo được |
-| --- | --- | --- | --- |
-| Nguyễn Mạnh Chiến | Điều phối business rules; kiểm tra FD/keys; chứng minh decomposition; tổng hợp phần 5–6 | Huân kiểm tra phép suy diễn; Khang kiểm tra ví dụ | Decision log đã chốt, bản report nhất quán và danh sách bàn giao |
-| Trần Hồ Cao Huân | FD từng quan hệ; minimal cover; closures; mọi candidate key; kiểm tra 3NF/BCNF các bảng | Chiến | FD spec có căn cứ, tính tay các khóa và kiểm tra với công cụ |
-| Nguyễn Đặng Duy Khang | Ví dụ anomalies; closure checker; test dữ liệu trước/sau với Database | Huân kiểm tra toán; Chiến đối chiếu nghiệp vụ | Hai ví dụ mỗi loại anomaly, test log và hướng dẫn tái lập |
-
-Không ghi gói AI này thành khối lượng đã hoàn thành riêng của một thành viên. Mỗi người phải kiểm tra, sửa, giải thích và commit phần mình thực sự thực hiện.
-
-## Kế hoạch 10 ngày làm việc
-
-`D0` là ngày Leader xác nhận bắt đầu đợt chốt schema, không phải giả định hôm nay đang là tuần học nào. Chuyển sang ngày lịch sau khi xác nhận deadline của lớp.
-
-| Mốc | Người chính | Việc cần hoàn tất | Đầu ra / điều kiện xong | Phụ thuộc |
-| --- | --- | --- | --- | --- |
-| D0 | Chiến + Leader | Đọc review; xác nhận file nguồn và database hiện dùng; chốt D01, D02, D03, D07; xác nhận hạn nộp | Decision log có người quyết định, ngày và căn cứ; một phiên bản schema chung | Leader, Database, Modelers |
-| D1 | Huân | FD cho 20 quan hệ; phân biệt FD với FK, domain rule và tổng participation | Mỗi FD gắn business rule; không suy FD từ sample | Các quyết định khóa |
-| D1–D2 | Khang | Chuẩn bị anomalies và chạy counterexamples; baseline audit trên bản sao dữ liệu được Database cung cấp | Log kết quả, lỗi có dữ liệu tái hiện; không sửa DB chung | Schema baseline |
-| D2–D3 | Huân | Minimal cover; closure; liệt kê và chứng minh tối thiểu của mọi candidate key | Tính tay + checker khớp; xử lý các khóa thay thế Email, student-exam, paper-order | FD đã review |
-| D3 | Chiến | Review chéo FD/keys; giải quyết điểm khác nhau về Marks và subtype | Chốt schema contract v1 cho Database/Java/Query | D0–D3 |
-| D3–D4 | Chiến + Huân | Chứng minh dạng chuẩn và phân rã `attempt`; nếu cần, `contains`; dependency preservation | Phần 5–6 bản v1, proof lossless đúng tập FD | Schema contract v1 |
-| D4–D5 | Database; Normalization review | DDL chuẩn hóa, constraints, transaction/trigger hoặc procedure; cập nhật `.mwb` và EER mapping | SQL trên DB sạch; diagram, từ điển dữ liệu và DDL khớp | Contract v1 |
-| D5–D6 | Khang + Database | Chạy test PK/FK/UNIQUE/CHECK, cross-table rules, parent-update và rollback | Tất cả P0/P1 trong test matrix được xử lý hoặc có giới hạn được chấp nhận rõ | DDL mới |
-| D6–D7 | Java + Query; Normalization hỗ trợ | Đổi join/DAO theo PaperKey, key selection, NULL; chốt cách tính 5 query đề bài | Có kết quả mong đợi bằng tay; 4/5 query truy cập qua UI theo đề | DDL đã ổn định |
-| D8 | Chiến | Freeze phần 5–6 và hướng dẫn giải thích thiết kế; đồng bộ references + AI appendix | Không còn mâu thuẫn giữa FD, diagrams, SQL và report | Test và tích hợp |
-| D9–D10 | Cả nhóm | Clone sạch, chạy SQL 2 lần, build Java, thử form; rehearsal hỏi đáp | Log nghiệm thu, phân công đã ký/xác nhận, gói nộp hoàn chỉnh | Tất cả nhóm |
-
-Ước lượng phần việc Normalization: Chiến 9–12 giờ, Huân 10–14 giờ, Khang 9–12 giờ; chưa gồm thời gian chờ phản hồi và buổi rehearsal. Đây là dự toán, không phải giờ đã thực hiện.
-
-## Điều chỉnh cần thiết so với midterm
-
-Midterm đặt việc Database cập nhật DDL sau normalization ở tuần 10, trong khi DAO/query đã triển khai từ tuần 8–9. Khóa và cột liên quan `attempt`, `paper`, `contains`, `select_table` phải được chốt sớm hơn để Java và Query không phải làm lại các join.
-
-Assignment, trang 5, ghi D3/D5/D6 ở tuần 10; Project Submission Guidelines, trang 1, ghi final ở tuần 11. Leader cần xác nhận hướng dẫn nào hiện được giảng viên áp dụng. Trong lúc chờ, đặt mốc hoàn tất nội bộ theo tuần 10; chưa khẳng định tuần 11 là hạn được phép nộp.
-
-## Cách đóng góp trên GitHub
-
-1. Review gói này qua draft PR. Chốt quyết định trong `01-review-and-decisions.md`; chỉ merge tài liệu khi nhóm hiểu các giả định và giới hạn.
-2. Huân tạo branch `normalization/fd-keys` để kiểm tra và sửa FD/keys; Khang tạo `normalization/anomaly-tests` để bổ sung dữ liệu/test; Chiến tổng hợp `normalization/report-proof`. Đây là tên branch gợi ý, chưa được tự tạo cho từng người.
-3. Database mở PR riêng cho schema/seed/constraints, liên kết decision log và test matrix. Modelers cập nhật EER source, ảnh export và `.mwb` trong cùng đợt schema; Query và Java review các cột/khóa chịu ảnh hưởng.
-4. Không sửa độc lập cả `.mwb` và SQL theo hai hướng. ERDPlus là conceptual source; bản DDL đã review là implementation source. Sau sửa DDL, reverse engineer/đồng bộ Workbench rồi kiểm tra lại ý nghĩa conceptual. Mỗi bản release có version và changelog.
-5. Đưa report/design hiện chưa nằm trên repo vào thư mục phù hợp khi Leader xác nhận bản cuối: `docs/design/`, `docs/reports/`, `database/schema.sql`, `database/seed.sql`, `database/queries.sql`. Không tạo bản sao report cũ rồi gọi đó là phiên bản hiện hành.
-
-Mỗi PR ghi rõ: rule nào đổi, FD/key nào đổi, ảnh hưởng Database/Java/Query, cách tái lập test và phần chưa xác minh. Không merge thay đổi schema chỉ vì import vào Workbench thành công.
-
-## Checklist hoàn tất phần Normalization
-
-- [ ] FD bắt nguồn từ business rules đã được nhóm xác nhận.
-- [ ] Mọi relation có đầy đủ attributes, minimal cover, mọi candidate key và proof tối thiểu.
-- [ ] Từng quan hệ đạt ít nhất 3NF; không để `attempt` dưới 2NF rồi gọi là ngoại lệ 3NF/BCNF.
-- [ ] Mỗi decomposition có proof lossless và phân tích dependency preservation riêng.
-- [ ] Có ít nhất hai ví dụ cho từng update/insert/delete anomaly và trước/sau normalization.
-- [ ] DDL, EER/mapping, `.mwb`, FD spec và query dùng cùng một phiên bản.
-- [ ] Test có kết quả thực chạy; không đánh dấu các test tương lai là pass.
-- [ ] Mỗi thành viên giải thích được vì sao Option_no/PaperID/Attempt_no không mặc nhiên là khóa toàn cục.
-- [ ] Phần 5–6, contributions và AI appendix được các thành viên kiểm tra trước nộp.
+* **Đã kiểm chứng thực tế trên MySQL `8.4.11` cô lập:**
+  * `01_schema_ddl_for_mwb_import.sql` chạy sạch (`exit code 0`).
+  * `02_online_examination_full_submission.sql` chạy sạch **2 lần liên tiếp** (`exit code 0`), cả `21/21` bảng có từ `15` đến `116` dòng.
+  * `03_verify_constraints_and_acceptance_N01_N24.sql` trả đủ 5 Query Topic 20 và **`ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`**.
+  * `04_migration_from_old_20tables_to_21tables.sql` vượt qua `8` chỉ số tiền kiểm + `4` chỉ số đối soát lossless với dữ liệu sạch, đồng thời tự `ROLLBACK` (`0` dòng ghi) khi gặp xung đột `Marks` cùng kỳ thi hoặc sai lệch `QuestionOrder`.
+* **3 đầu việc còn chờ nhóm phối hợp chốt trước khi áp dụng lên cloud:**
+  1. Import `01_schema_ddl_for_mwb_import.sql` trên MySQL Workbench GUI để xuất file `.mwb` mới và ảnh sơ đồ quan hệ 21 bảng.
+  2. Kiểm tra dữ liệu thực tế trên Aiven (`online_examination_old`) để quyết định làm mới DB bằng `02` hay migrate an toàn bằng `01` + `04`.
+  3. Đồng bộ các lớp Java `DAO` / `MODEL` / `Service` trên `main` (hiện viết theo `OPTION C` / bảng 20 cột cũ như `paper_contains`, `paper_code`, `ANSWER.AnswerText` cho MCQ) sang schema 21 bảng khi nhóm thống nhất áp dụng.
