@@ -61,9 +61,9 @@ INSERT INTO OPTIONS (Option_no, Quest_ID, Op_Content, Bool_Correct) VALUES
 
 -- Exam, paper, questions and registration.
 INSERT INTO EXAMINATION
-    (Exam_ID, Title, Exam_date, Duration, Pass_mark, Max_attempts, Course_ID)
+    (Exam_ID, Title, Exam_date, Duration, Pass_mark, Max_attempts, Course_ID, Status)
 VALUES
-    (9001, 'Student Results Test Exam', '2026-11-20 09:00:00', 60, 10.00, 2, 9001);
+    (9001, 'Student Results Test Exam', '2026-11-20 09:00:00', 60, 10.00, 2, 9001, 'PUBLISHED');
 
 INSERT INTO PAPER (PaperID, Exam_ID) VALUES (1, 9001);
 
