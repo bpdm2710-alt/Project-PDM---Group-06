@@ -3,6 +3,7 @@ package org.example.Service;
 import org.example.session.Session;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -23,7 +24,7 @@ import java.util.Set;
  * Instructor data layer.
  * Patch 03: My courses and the Exams tab (list / detail / save / delete / publish).
  * Patch 04: paper builder + question bank.
- * Still to come: statistics (patch 05).
+ * Patch 05: statistics + student marks. The instructor service is now complete.
  *
  * Conventions:
  *  - EXAMINATION.Status is DRAFT or PUBLISHED; COMPLETED is derived (published and the exam
@@ -599,25 +600,218 @@ public class InstructorServiceImpl implements InstructorService {
         }));
     }
 
-    // ---- Not written yet (patch 05) ----------------------------------------
+    // ---- Statistics tab (patch 05) -----------------------------------------
+    //
+    // D09 (chosen here): per student and exam, the BEST finished attempt counts
+    // (highest score, later attempt wins a tie). Finished = EndTime > StartTime.
+    // Exams that are still drafts are ignored everywhere on this tab.
+
+    private record Att(int regisId, int attemptNo, int userId, int examId,
+                       BigDecimal score, BigDecimal max) {
+        String key() {
+            return regisId + ":" + attemptNo;
+        }
+    }
 
     @Override
     public CourseStatistics getStatistics(int courseId) throws ServiceException {
-        throw notYet("Statistics");
+        return Db.run(conn -> {
+            checkTeaches(conn, courseId);
+
+            int completed = 0;
+            LocalDateTime now = LocalDateTime.now();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT Status, Exam_date, Duration FROM EXAMINATION WHERE Course_ID = ?")) {
+                ps.setInt(1, courseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (status(rs.getString(1), toLdt(rs.getTimestamp(2)), rs.getInt(3), now)
+                                == ExamStatus.COMPLETED) {
+                            completed++;
+                        }
+                    }
+                }
+            }
+
+            Set<String> best = new HashSet<>();
+            bestAttempts(conn, courseId).values().forEach(a -> best.add(a.key()));
+
+            // One row per (counted attempt, question): marks available and marks earned.
+            Map<String, BigDecimal[]> byTopic = new LinkedHashMap<>(); // topic -> {earned, max}
+            Map<Integer, Object[]> byQuestion = new LinkedHashMap<>(); // id -> {content, correct, total}
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT a.RegisID, a.Attempt_no, q.Quest_ID, q.Content, t.Content AS topic, ct.Marks, " +
+                    "COALESCE(ans.MarkAwarded, 0) AS earned " +
+                    "FROM ATTEMPT a " +
+                    "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
+                    "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
+                    "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
+                    "JOIN QUESTION q ON q.Quest_ID = ct.Quest_ID " +
+                    "JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
+                    "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
+                    "  AND ans.RegisID = a.RegisID " +
+                    "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime")) {
+                ps.setInt(1, courseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        if (!best.contains(rs.getInt(1) + ":" + rs.getInt(2))) {
+                            continue;
+                        }
+                        BigDecimal marks = rs.getBigDecimal("Marks");
+                        BigDecimal earned = rs.getBigDecimal("earned");
+                        BigDecimal[] t = byTopic.computeIfAbsent(rs.getString("topic"),
+                                k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                        t[0] = t[0].add(earned);
+                        t[1] = t[1].add(marks);
+                        Object[] q = byQuestion.computeIfAbsent(rs.getInt("Quest_ID"),
+                                k -> new Object[]{null, 0, 0});
+                        q[0] = rs.getString("Content");
+                        q[1] = (Integer) q[1] + (earned.compareTo(marks) >= 0 ? 1 : 0);
+                        q[2] = (Integer) q[2] + 1;
+                    }
+                }
+            }
+
+            List<TopicAverage> topics = new ArrayList<>();
+            byTopic.forEach((name, v) -> {
+                if (v[1].signum() > 0) {
+                    topics.add(new TopicAverage(name, percent(v[0], v[1])));
+                }
+            });
+            topics.sort(Comparator.comparing(TopicAverage::topic, String.CASE_INSENSITIVE_ORDER));
+
+            List<HardQuestion> hard = new ArrayList<>();
+            byQuestion.forEach((id, v) -> {
+                int ok = (Integer) v[1];
+                int total = (Integer) v[2];
+                if (ok < total) { // a question everybody got right is not "hard"
+                    hard.add(new HardQuestion(id, (String) v[0],
+                            percent(BigDecimal.valueOf(ok), BigDecimal.valueOf(total))));
+                }
+            });
+            hard.sort(Comparator.comparing(HardQuestion::correctPercent)
+                    .thenComparingInt(HardQuestion::questionId));
+            List<HardQuestion> top = hard.size() > HARDEST_LIMIT ? hard.subList(0, HARDEST_LIMIT) : hard;
+
+            return new CourseStatistics(completed, topics, new ArrayList<>(top));
+        });
     }
 
     @Override
     public StudentMarkTable listStudentMarks(int courseId, boolean completedAllOnly,
                                              int page, int pageSize) throws ServiceException {
-        throw notYet("Student marks");
+        int size = Math.max(1, Math.min(pageSize, 200));
+        int pageNo = Math.max(1, page);
+        return Db.run(conn -> {
+            checkTeaches(conn, courseId);
+
+            List<ExamColumn> columns = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT Exam_ID, Title FROM EXAMINATION WHERE Course_ID = ? AND Status = 'PUBLISHED' " +
+                    "ORDER BY (Exam_date IS NULL), Exam_date, Exam_ID")) {
+                ps.setInt(1, courseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        columns.add(new ExamColumn(rs.getInt(1), rs.getString(2)));
+                    }
+                }
+            }
+
+            // Students who registered for at least one published exam of the course.
+            Map<Integer, String> students = new LinkedHashMap<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT DISTINCT u.User_ID, u.FirstName, u.LastName FROM REGISTRATION r " +
+                    "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
+                    "JOIN `USER` u ON u.User_ID = r.User_ID " +
+                    "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' " +
+                    "ORDER BY u.LastName, u.FirstName, u.User_ID")) {
+                ps.setInt(1, courseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        students.put(rs.getInt(1), (rs.getString(2) + " " + rs.getString(3)).trim());
+                    }
+                }
+            }
+
+            Map<String, Att> best = bestAttempts(conn, courseId); // "user:exam" -> attempt
+            List<StudentMarkRow> all = new ArrayList<>();
+            int completedAll = 0;
+            for (Map.Entry<Integer, String> st : students.entrySet()) {
+                List<ExamScore> scores = new ArrayList<>();
+                BigDecimal sumPercent = BigDecimal.ZERO;
+                int done = 0;
+                for (ExamColumn col : columns) {
+                    Att a = best.get(st.getKey() + ":" + col.examId());
+                    if (a == null) {
+                        scores.add(null);
+                    } else {
+                        scores.add(new ExamScore(a.score(), a.max()));
+                        sumPercent = sumPercent.add(a.max().signum() == 0 ? BigDecimal.ZERO
+                                : percent(a.score(), a.max()));
+                        done++;
+                    }
+                }
+                BigDecimal avg = done == 0 ? null
+                        : sumPercent.divide(BigDecimal.valueOf(done), 1, RoundingMode.HALF_UP);
+                if (!columns.isEmpty() && done == columns.size()) {
+                    completedAll++;
+                }
+                all.add(new StudentMarkRow(st.getKey(), st.getValue(), scores, avg, done, columns.size()));
+            }
+
+            List<StudentMarkRow> shown = completedAllOnly
+                    ? all.stream().filter(r -> r.totalCount() > 0 && r.completedCount() == r.totalCount()).toList()
+                    : all;
+            int from = (int) Math.min((long) (pageNo - 1) * size, shown.size());
+            int to = Math.min(from + size, shown.size());
+            Page<StudentMarkRow> rows = new Page<>(new ArrayList<>(shown.subList(from, to)),
+                    pageNo, size, shown.size());
+            return new StudentMarkTable(columns, rows, all.size(), completedAll);
+        });
+    }
+
+    private static final int HARDEST_LIMIT = 5;
+
+    private static BigDecimal percent(BigDecimal part, BigDecimal whole) {
+        return part.multiply(BigDecimal.valueOf(100)).divide(whole, 1, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Best finished attempt per (student, exam) for the published exams of a course.
+     * Key = "userId:examId".
+     */
+    private static Map<String, Att> bestAttempts(Connection conn, int courseId) throws SQLException {
+        Map<String, Att> best = new LinkedHashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID, " +
+                "COALESCE(SUM(ct.Marks), 0) AS max_score, COALESCE(SUM(ans.MarkAwarded), 0) AS score " +
+                "FROM ATTEMPT a " +
+                "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
+                "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
+                "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
+                "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
+                "  AND ans.RegisID = a.RegisID " +
+                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime " +
+                "GROUP BY a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID " +
+                "ORDER BY a.RegisID, a.Attempt_no")) {
+            ps.setInt(1, courseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Att a = new Att(rs.getInt(1), rs.getInt(2), rs.getInt(3), rs.getInt(4),
+                            rs.getBigDecimal("score"), rs.getBigDecimal("max_score"));
+                    String k = a.userId() + ":" + a.examId();
+                    Att cur = best.get(k);
+                    // rows come in attempt order, so >= lets the later attempt win a tie
+                    if (cur == null || a.score().compareTo(cur.score()) >= 0) {
+                        best.put(k, a);
+                    }
+                }
+            }
+        }
+        return best;
     }
 
     // ---- Helpers ----------------------------------------------------------
-
-    private static ServiceException notYet(String what) {
-        return new ServiceException(ServiceException.Kind.UNAVAILABLE,
-                what + " is not connected to the database yet.");
-    }
 
     private static LocalDateTime toLdt(Timestamp ts) {
         return ts == null ? null : ts.toLocalDateTime();
