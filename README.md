@@ -1,18 +1,13 @@
 # Project PDM — Group 06
 
-## Normalization review and work plan
+## Normalization & Normalized SQL (21 bảng BCNF)
 
-Xem [gói rà soát và kế hoạch Normalization](docs/normalization/README.md) để đọc
-FD/candidate keys, chứng minh phân rã, các quyết định cần chốt và checklist bàn
-giao cho Database, Data Modelers, Query và Java. Đây là bản đề xuất để review;
-chưa phải schema đã phê duyệt hoặc migration cho database dùng chung.
-
-Kiểm tra FD/keys từ thư mục gốc repo (Python 3.10+, không cần thư viện ngoài):
-
-```text
-python tools/normalization_check.py
-python -m unittest discover -s tests -v
-```
+* **Tóm tắt chuẩn hóa & đối chiếu cho từng nhóm:** [docs/normalization/README.md](docs/normalization/README.md)
+* **Bộ script SQL 21 bảng BCNF (đã kiểm chứng trên MySQL 8.4.11):** [database/normalized_21tables/](database/normalized_21tables/)
+  * Nộp bài D5 / dựng mới DB mẫu: `02_online_examination_full_submission.sql`
+  * Import dựng `.mwb` trên Workbench: `01_schema_ddl_for_mwb_import.sql`
+  * Truy vấn Topic 20 & 39 test nghiệm thu: `03_verify_constraints_and_acceptance_N01_N24.sql`
+  * Chuyển dữ liệu từ schema 20 bảng cũ: `04_migration_from_old_20tables_to_21tables.sql`
 
 ## MySQL Database Connection Setup
 
