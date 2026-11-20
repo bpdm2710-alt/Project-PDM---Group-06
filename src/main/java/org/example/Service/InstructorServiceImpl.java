@@ -11,14 +11,19 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Instructor data layer.
- * Patch 03 (this file): My courses and the Exams tab (list / detail / save / delete / publish).
- * Still to come: paper builder (patch 04), question bank (patch 04), statistics (patch 05).
+ * Patch 03: My courses and the Exams tab (list / detail / save / delete / publish).
+ * Patch 04: paper builder + question bank.
+ * Still to come: statistics (patch 05).
  *
  * Conventions:
  *  - EXAMINATION.Status is DRAFT or PUBLISHED; COMPLETED is derived (published and the exam
@@ -321,38 +326,280 @@ public class InstructorServiceImpl implements InstructorService {
         }));
     }
 
-    // ---- Not written yet (patch 04 / 05) -----------------------------------
+    // ---- Build your paper (patch 04) ---------------------------------------
 
     @Override
-    public int savePaper(PaperDraft draft) throws ServiceException {
-        throw notYet("Paper builder");
+    public int savePaper(PaperDraft d) throws ServiceException {
+        if (d == null || d.questions() == null || d.questions().isEmpty()) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION,
+                    "Add at least one question to the paper.");
+        }
+        if (d.questions().size() > MAX_PAPER_QUESTIONS) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION,
+                    "A paper can have at most " + MAX_PAPER_QUESTIONS + " questions.");
+        }
+        Set<Integer> seen = new HashSet<>();
+        for (PaperQuestionDraft q : d.questions()) {
+            if (!seen.add(q.questionId())) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "The same question is in the paper twice.");
+            }
+            if (q.marks() == null || q.marks().signum() <= 0
+                    || q.marks().compareTo(MAX_MARKS) > 0) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "Marks must be greater than 0 and at most 9999.99.");
+            }
+        }
+        // The order that matters is the order given; store it as 1..n.
+        List<PaperQuestionDraft> ordered = new ArrayList<>(d.questions());
+        ordered.sort(Comparator.comparingInt(PaperQuestionDraft::order));
+
+        return Db.run(conn -> Db.tx(conn, c -> {
+            int courseId = courseOfExam(c, d.examId());
+            checkTeaches(c, courseId);
+            lockExam(c, d.examId());
+            if (countAttempts(c, d.examId()) > 0) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "Students have already attempted this exam, so its paper cannot change.");
+            }
+            Set<Integer> allowed = questionIdsOfCourse(c, courseId);
+            for (PaperQuestionDraft q : ordered) {
+                if (!allowed.contains(q.questionId())) {
+                    throw new ServiceException(ServiceException.Kind.VALIDATION,
+                            "Question " + q.questionId() + " is not in this course's question bank.");
+                }
+            }
+
+            int paperId;
+            if (d.paperKey() == null) {
+                paperId = scalar(c, "SELECT COALESCE(MAX(PaperID), 0) + 1 FROM PAPER WHERE Exam_ID = ?",
+                        d.examId());
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO PAPER (PaperID, Exam_ID) VALUES (?, ?)")) {
+                    ps.setInt(1, paperId);
+                    ps.setInt(2, d.examId());
+                    ps.executeUpdate();
+                }
+            } else {
+                paperId = d.paperKey();
+                if (scalar2(c, "SELECT COUNT(*) FROM PAPER WHERE Exam_ID = ? AND PaperID = ?",
+                        d.examId(), paperId) == 0) {
+                    throw new ServiceException(ServiceException.Kind.NOT_FOUND,
+                            "That paper does not belong to this exam.");
+                }
+                try (PreparedStatement ps = c.prepareStatement(
+                        "DELETE FROM CONTAINS WHERE Exam_ID = ? AND PaperID = ?")) {
+                    ps.setInt(1, d.examId());
+                    ps.setInt(2, paperId);
+                    ps.executeUpdate();
+                }
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO CONTAINS (Quest_ID, PaperID, Exam_ID, QuestionOrder, Marks) " +
+                    "VALUES (?, ?, ?, ?, ?)")) {
+                int order = 1;
+                for (PaperQuestionDraft q : ordered) {
+                    ps.setInt(1, q.questionId());
+                    ps.setInt(2, paperId);
+                    ps.setInt(3, d.examId());
+                    ps.setInt(4, order++);
+                    ps.setBigDecimal(5, q.marks());
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+            return paperId;
+        }));
     }
+
+    // ---- Question bank (patch 04) ------------------------------------------
 
     @Override
     public List<TopicOption> listTopics(int courseId) throws ServiceException {
-        throw notYet("Question bank");
+        return Db.run(conn -> {
+            checkTeaches(conn, courseId);
+            List<TopicOption> out = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT t.Topic_ID, t.Content FROM COVERS cv JOIN TOPIC t ON t.Topic_ID = cv.Topic_ID " +
+                    "WHERE cv.Course_ID = ? ORDER BY t.Content, t.Topic_ID")) {
+                ps.setInt(1, courseId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        out.add(new TopicOption(rs.getInt(1), rs.getString(2)));
+                    }
+                }
+            }
+            return out;
+        });
     }
 
     @Override
-    public Page<QuestionBankItem> searchQuestionBank(int courseId, QuestionBankFilter filter,
+    public Page<QuestionBankItem> searchQuestionBank(int courseId, QuestionBankFilter f,
                                                      int page, int pageSize) throws ServiceException {
-        throw notYet("Question bank");
+        int size = Math.max(1, Math.min(pageSize, 200));
+        int pageNo = Math.max(1, page);
+        QuestionBankFilter filter = f == null ? QuestionBankFilter.none() : f;
+
+        return Db.run(conn -> {
+            checkTeaches(conn, courseId);
+            StringBuilder from = new StringBuilder(
+                    " FROM QUESTION q JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
+                    "JOIN COVERS cv ON cv.Topic_ID = q.Topic_ID AND cv.Course_ID = ? " +
+                    "LEFT JOIN MCQ m ON m.Quest_ID = q.Quest_ID WHERE 1 = 1");
+            List<Object> params = new ArrayList<>();
+            params.add(courseId);
+            if (filter.keyword() != null && !filter.keyword().isBlank()) {
+                from.append(" AND q.Content LIKE ? ESCAPE '\\\\'");
+                params.add("%" + likeEscape(filter.keyword().trim()) + "%");
+            }
+            if (filter.topicId() != null) {
+                from.append(" AND q.Topic_ID = ?");
+                params.add(filter.topicId());
+            }
+            if (filter.type() == QuestionType.MCQ) {
+                from.append(" AND m.Quest_ID IS NOT NULL");
+            } else if (filter.type() == QuestionType.SHORT_ANSWER) {
+                from.append(" AND m.Quest_ID IS NULL");
+            }
+            if (filter.difficulty() != null) {
+                from.append(" AND q.Difficulty = ?");
+                params.add(filter.difficulty());
+            }
+
+            long total;
+            try (PreparedStatement ps = conn.prepareStatement("SELECT COUNT(*)" + from)) {
+                bind(ps, params, 0);
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    total = rs.getLong(1);
+                }
+            }
+            List<QuestionBankItem> items = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT q.Quest_ID, q.Content, q.Difficulty, t.Content AS topic, " +
+                    "(m.Quest_ID IS NOT NULL) AS is_mcq" + from +
+                    " ORDER BY q.Quest_ID DESC LIMIT ? OFFSET ?")) {
+                int next = bind(ps, params, 0);
+                ps.setInt(next + 1, size);
+                ps.setLong(next + 2, (long) (pageNo - 1) * size);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        items.add(new QuestionBankItem(rs.getInt("Quest_ID"), rs.getString("Content"),
+                                rs.getBoolean("is_mcq") ? QuestionType.MCQ : QuestionType.SHORT_ANSWER,
+                                rs.getInt("Difficulty"), rs.getString("topic")));
+                    }
+                }
+            }
+            return new Page<>(items, pageNo, size, total);
+        });
     }
 
     @Override
     public QuestionDraft getQuestion(int questionId) throws ServiceException {
-        throw notYet("Question bank");
+        return Db.run(conn -> {
+            checkQuestionAccess(conn, questionId);
+            return loadQuestion(conn, questionId);
+        });
     }
 
     @Override
-    public int saveQuestion(int instructorId, QuestionDraft draft) throws ServiceException {
-        throw notYet("Question bank");
+    public int saveQuestion(int instructorId, QuestionDraft d) throws ServiceException {
+        validateQuestion(d);
+        return Db.run(conn -> Db.tx(conn, c -> {
+            if (Session.isLoggedIn() && Session.user().userId() != instructorId) {
+                throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
+                        "You can only save questions as yourself.");
+            }
+            if (scalar(c, "SELECT COUNT(*) FROM INSTRUCTOR WHERE User_ID = ?", instructorId) == 0) {
+                throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
+                        "Only instructors can write questions.");
+            }
+            checkTopicAccess(c, d.topicId(), instructorId);
+
+            String content = d.content().trim();
+            if (d.questionId() == null) {
+                int id;
+                try (PreparedStatement ps = c.prepareStatement(
+                        "INSERT INTO QUESTION (Content, Difficulty, Topic_ID, User_ID) VALUES (?, ?, ?, ?)",
+                        Statement.RETURN_GENERATED_KEYS)) {
+                    ps.setString(1, content);
+                    ps.setInt(2, d.difficulty());
+                    ps.setInt(3, d.topicId());
+                    ps.setInt(4, instructorId);
+                    ps.executeUpdate();
+                    try (ResultSet keys = ps.getGeneratedKeys()) {
+                        if (!keys.next()) {
+                            throw new ServiceException(ServiceException.Kind.INTERNAL,
+                                    "The question was saved but its id could not be read.");
+                        }
+                        id = keys.getInt(1);
+                    }
+                }
+                insertSubtype(c, id, d);
+                return id;
+            }
+
+            int id = d.questionId();
+            checkQuestionAccess(c, id);
+            try (PreparedStatement ps = c.prepareStatement(
+                    "SELECT Quest_ID FROM QUESTION WHERE Quest_ID = ? FOR UPDATE")) {
+                ps.setInt(1, id);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
+                    }
+                }
+            }
+            QuestionDraft old = loadQuestion(c, id);
+            boolean answered = scalar(c, "SELECT COUNT(*) FROM ANSWER WHERE Quest_ID = ?", id) > 0;
+            boolean sameBody = old.type() == d.type() && old.topicId() == d.topicId()
+                    && sameOptions(old.options(), d.options())
+                    && Objects.equals(trimOrNull(old.answerKey()), trimOrNull(d.answerKey()));
+            if (answered && !sameBody) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "Students have already answered this question. You can fix the wording " +
+                        "and difficulty, but not its type, topic, options or answer key.");
+            }
+            try (PreparedStatement ps = c.prepareStatement(
+                    "UPDATE QUESTION SET Content = ?, Difficulty = ?, Topic_ID = ? WHERE Quest_ID = ?")) {
+                ps.setString(1, content);
+                ps.setInt(2, d.difficulty());
+                ps.setInt(3, d.topicId());
+                ps.setInt(4, id);
+                ps.executeUpdate();
+            }
+            if (!sameBody) {
+                deleteSubtype(c, id);
+                insertSubtype(c, id, d);
+            }
+            return id;
+        }));
     }
 
     @Override
     public void deleteQuestion(int questionId) throws ServiceException {
-        throw notYet("Question bank");
+        Db.run(conn -> Db.tx(conn, c -> {
+            checkQuestionAccess(c, questionId);
+            if (scalar(c, "SELECT COUNT(*) FROM QUESTION WHERE Quest_ID = ?", questionId) == 0) {
+                throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
+            }
+            if (scalar(c, "SELECT COUNT(*) FROM ANSWER WHERE Quest_ID = ?", questionId) > 0) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "Students have already answered this question, so it cannot be deleted.");
+            }
+            if (scalar(c, "SELECT COUNT(*) FROM CONTAINS ct JOIN EXAMINATION e ON e.Exam_ID = ct.Exam_ID " +
+                    "WHERE ct.Quest_ID = ? AND e.Status = 'PUBLISHED'", questionId) > 0) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "This question is in a published exam. Unpublish the exam or change its paper first.");
+            }
+            exec(c, "DELETE FROM CONTAINS WHERE Quest_ID = ?", questionId); // draft exams only
+            deleteSubtype(c, questionId);
+            exec(c, "DELETE FROM QUESTION WHERE Quest_ID = ?", questionId);
+            return null;
+        }));
     }
+
+    // ---- Not written yet (patch 05) ----------------------------------------
 
     @Override
     public CourseStatistics getStatistics(int courseId) throws ServiceException {
@@ -452,5 +699,235 @@ public class InstructorServiceImpl implements InstructorService {
             ps.setInt(1, param);
             ps.executeUpdate();
         }
+    }
+
+    // ---- Helpers for patch 04 ---------------------------------------------
+
+    private static final int MAX_PAPER_QUESTIONS = 200;
+    private static final int MAX_QUESTION_CHARS = 5000;
+    private static final int MAX_OPTIONS = 10;
+    private static final BigDecimal MAX_MARKS = new BigDecimal("9999.99");
+
+    private static void validateQuestion(QuestionDraft d) throws ServiceException {
+        if (d == null) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Nothing to save.");
+        }
+        if (d.content() == null || d.content().isBlank()) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Please write the question.");
+        }
+        if (d.content().trim().length() > MAX_QUESTION_CHARS) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION,
+                    "The question is too long (max " + MAX_QUESTION_CHARS + " characters).");
+        }
+        if (d.difficulty() < 1 || d.difficulty() > 5) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Difficulty must be from 1 to 5.");
+        }
+        if (d.type() == null) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Choose a question type.");
+        }
+        if (d.type() == QuestionType.MCQ) {
+            List<OptionDraft> o = d.options();
+            if (o == null || o.size() < 2 || o.size() > MAX_OPTIONS) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "A multiple choice question needs 2 to " + MAX_OPTIONS + " options.");
+            }
+            int correct = 0;
+            Set<String> texts = new HashSet<>();
+            for (OptionDraft x : o) {
+                if (x.content() == null || x.content().isBlank()) {
+                    throw new ServiceException(ServiceException.Kind.VALIDATION, "An option is empty.");
+                }
+                if (x.content().trim().length() > MAX_QUESTION_CHARS) {
+                    throw new ServiceException(ServiceException.Kind.VALIDATION, "An option is too long.");
+                }
+                if (!texts.add(x.content().trim().toLowerCase())) {
+                    throw new ServiceException(ServiceException.Kind.VALIDATION,
+                            "Two options have the same text.");
+                }
+                correct += x.correct() ? 1 : 0;
+            }
+            if (correct != 1) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "Exactly one option must be marked correct.");
+            }
+        } else if (d.answerKey() == null || d.answerKey().isBlank()) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Enter the model answer.");
+        } else if (d.answerKey().trim().length() > MAX_QUESTION_CHARS) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "The model answer is too long.");
+        }
+    }
+
+    /** Fills MCQ + OPTIONS or SHORT_ANSWER for a question that already has its QUESTION row. */
+    private static void insertSubtype(Connection c, int id, QuestionDraft d) throws SQLException {
+        if (d.type() == QuestionType.MCQ) {
+            exec(c, "INSERT INTO MCQ (Quest_ID) VALUES (?)", id);
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO OPTIONS (Option_no, Quest_ID, Op_Content, Bool_Correct) VALUES (?, ?, ?, ?)")) {
+                int no = 1;
+                for (OptionDraft o : d.options()) {
+                    ps.setInt(1, no++);
+                    ps.setInt(2, id);
+                    ps.setString(3, o.content().trim());
+                    ps.setInt(4, o.correct() ? 1 : 0);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        } else {
+            try (PreparedStatement ps = c.prepareStatement(
+                    "INSERT INTO SHORT_ANSWER (Quest_ID, Answer_key) VALUES (?, ?)")) {
+                ps.setInt(1, id);
+                ps.setString(2, d.answerKey().trim());
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    private static void deleteSubtype(Connection c, int id) throws SQLException {
+        exec(c, "DELETE FROM SELECT_TABLE WHERE Quest_ID = ?", id);
+        exec(c, "DELETE FROM OPTIONS WHERE Quest_ID = ?", id);
+        exec(c, "DELETE FROM MCQ WHERE Quest_ID = ?", id);
+        exec(c, "DELETE FROM SHORT_ANSWER WHERE Quest_ID = ?", id);
+    }
+
+    private static QuestionDraft loadQuestion(Connection conn, int questionId)
+            throws SQLException, ServiceException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT q.Content, q.Difficulty, q.Topic_ID, (m.Quest_ID IS NOT NULL) AS is_mcq, sa.Answer_key " +
+                "FROM QUESTION q LEFT JOIN MCQ m ON m.Quest_ID = q.Quest_ID " +
+                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = q.Quest_ID WHERE q.Quest_ID = ?")) {
+            ps.setInt(1, questionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
+                }
+                boolean mcq = rs.getBoolean("is_mcq");
+                List<OptionDraft> options = new ArrayList<>();
+                if (mcq) {
+                    try (PreparedStatement ops = conn.prepareStatement(
+                            "SELECT Op_Content, Bool_Correct FROM OPTIONS WHERE Quest_ID = ? ORDER BY Option_no")) {
+                        ops.setInt(1, questionId);
+                        try (ResultSet or = ops.executeQuery()) {
+                            while (or.next()) {
+                                options.add(new OptionDraft(or.getString(1), or.getInt(2) == 1));
+                            }
+                        }
+                    }
+                }
+                return new QuestionDraft(questionId, rs.getInt("Topic_ID"),
+                        mcq ? QuestionType.MCQ : QuestionType.SHORT_ANSWER, rs.getString("Content"),
+                        rs.getInt("Difficulty"), options, mcq ? null : rs.getString("Answer_key"));
+            }
+        }
+    }
+
+    private static boolean sameOptions(List<OptionDraft> a, List<OptionDraft> b) {
+        List<OptionDraft> x = a == null ? List.of() : a;
+        List<OptionDraft> y = b == null ? List.of() : b;
+        if (x.size() != y.size()) {
+            return false;
+        }
+        for (int i = 0; i < x.size(); i++) {
+            if (x.get(i).correct() != y.get(i).correct()
+                    || !x.get(i).content().trim().equals(y.get(i).content().trim())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String trimOrNull(String s) {
+        return s == null ? null : s.trim();
+    }
+
+    /** Every question whose topic the course covers. */
+    private static Set<Integer> questionIdsOfCourse(Connection conn, int courseId) throws SQLException {
+        Set<Integer> ids = new HashSet<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT q.Quest_ID FROM QUESTION q JOIN COVERS cv ON cv.Topic_ID = q.Topic_ID " +
+                "WHERE cv.Course_ID = ?")) {
+            ps.setInt(1, courseId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getInt(1));
+                }
+            }
+        }
+        return ids;
+    }
+
+    /** The logged-in instructor must teach at least one course that covers the topic. */
+    private static void checkTopicAccess(Connection conn, int topicId, int instructorId)
+            throws SQLException, ServiceException {
+        if (scalar(conn, "SELECT COUNT(*) FROM TOPIC WHERE Topic_ID = ?", topicId) == 0) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Topic not found.");
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT 1 FROM COVERS cv JOIN TEACH t ON t.Course_ID = cv.Course_ID " +
+                "WHERE cv.Topic_ID = ? AND t.User_ID = ? LIMIT 1")) {
+            ps.setInt(1, topicId);
+            ps.setInt(2, instructorId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new ServiceException(ServiceException.Kind.UNAUTHORIZED,
+                            "You do not teach a course that covers this topic.");
+                }
+            }
+        }
+    }
+
+    /** Reading/changing a question needs a course you teach that covers its topic. */
+    private static void checkQuestionAccess(Connection conn, int questionId)
+            throws SQLException, ServiceException {
+        if (!Session.isLoggedIn()) {
+            return;
+        }
+        Integer topic = null;
+        try (PreparedStatement ps = conn.prepareStatement("SELECT Topic_ID FROM QUESTION WHERE Quest_ID = ?")) {
+            ps.setInt(1, questionId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    topic = rs.getInt(1);
+                }
+            }
+        }
+        if (topic == null) {
+            throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Question not found.");
+        }
+        AuthService.UserAccount u = Session.user();
+        if (u.role() != AuthService.Role.INSTRUCTOR) {
+            throw new ServiceException(ServiceException.Kind.UNAUTHORIZED, "Only instructors can do this.");
+        }
+        checkTopicAccess(conn, topic, u.userId());
+    }
+
+    private static void lockExam(Connection conn, int examId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT Exam_ID FROM EXAMINATION WHERE Exam_ID = ? FOR UPDATE")) {
+            ps.setInt(1, examId);
+            ps.executeQuery().close();
+        }
+    }
+
+    private static int scalar2(Connection conn, String sql, int a, int b) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, a);
+            ps.setInt(2, b);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    private static String likeEscape(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /** Binds params starting at index 1 + offset; returns how many parameters are now bound. */
+    private static int bind(PreparedStatement ps, List<Object> params, int offset) throws SQLException {
+        for (int i = 0; i < params.size(); i++) {
+            ps.setObject(offset + i + 1, params.get(i));
+        }
+        return offset + params.size();
     }
 }
