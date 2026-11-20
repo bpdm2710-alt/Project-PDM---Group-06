@@ -3,7 +3,7 @@
 -- Run AFTER 02_online_examination_full_submission.sql
 -- Fails loudly (SIGNAL 45000) if any assertion or expected error check fails.
 -- ============================================================================
-USE `online_examination`;
+USE `Online_Examination`;
 
 -- ----------------------------------------------------------------------------
 -- PART A: Schema Metadata & Minimum Row Count Audit (>= 15 rows per table)
