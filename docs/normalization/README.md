@@ -26,11 +26,12 @@
 | **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần tạo schema `Online_Examination` (không chứa `DELIMITER`/Trigger) để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
 | **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy trực tiếp ngay sau `02` trên `Online_Examination` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 ca nghiệm thu. |
 | **Team Java DAO / Service** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Java đọc điểm qua các view (`v_attempt_scores`…) và tự chạy các thao tác nhiều bước (bắt đầu, lưu câu trả lời, nộp bài) trong transaction JDBC riêng; ứng dụng **không gọi** 5 stored procedure, các procedure được giữ để minh họa transaction ở tầng DB. Trigger vẫn kiểm tra mọi thay đổi. |
+| **DML & transaction (nộp bài)** | [`04_dml_and_transactions.sql`](../../database/normalized_21tables/04_dml_and_transactions.sql) | Chạy sau `02`: INSERT, UPDATE, DELETE cho mỗi bảng chính và 3 transaction đổi hai bảng cùng lúc (2 lần `COMMIT`, 1 lần `ROLLBACK`). Dùng khối ID riêng 9001+ / 90001+ và tự xóa sạch những gì đã tạo, nên an toàn trên DB dùng chung; chạy lại nhiều lần được. App không chạy file này. |
 | **Nâng cấp mật khẩu mẫu** | [`05_upgrade_password_hashes.sql`](../../database/normalized_21tables/05_upgrade_password_hashes.sql) | Chỉ dùng cho DB dựng từ seed `02` cũ: thay giá trị `sha256:…` giữ chỗ bằng hash PBKDF2 thật (như seed `02` mới). Chạy lại nhiều lần vẫn an toàn. |
 
 ### Schema MySQL
 
-Các script `01`–`03` và `05` dùng schema đích **`Online_Examination`**, khớp `application.properties.example`. (Script chuyển đổi `04_migration_from_old_20tables_to_21tables.sql` đã được gỡ khỏi repo ở commit `a72b19d`, vì DB trên Aiven đã được dựng lại bằng `02`.)
+Các script `01`–`05` dùng schema đích **`Online_Examination`**, khớp `application.properties.example`. (Script chuyển đổi cũ `04_migration_from_old_20tables_to_21tables.sql` đã được gỡ khỏi repo ở commit `a72b19d`, vì DB trên Aiven đã được dựng lại bằng `02`; số `04` nay dùng cho script DML & transaction.)
 
 Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên Windows với `lower_case_table_names = 1`. Trên máy chủ có `lower_case_table_names = 0`, các câu lệnh dùng đúng tên `Online_Examination`. Chế độ này chưa được chạy thử.
 
@@ -45,7 +46,7 @@ Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên W
   * `02_online_examination_full_submission.sql` chạy sạch **2 lần liên tiếp** (`exit code 0`), cả `21/21` bảng có từ `15` đến `116` dòng.
   * `03_verify_constraints_and_acceptance_N01_N24.sql` trả đủ 5 Query Topic 20 và **`ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`**.
 * **Việc còn lại:**
-  1. Reverse-engineer lại `01_schema_ddl_for_mwb_import.sql` trên MySQL Workbench để cập nhật `docs/design/Relational_Schema.mwb` và `Relational_Schema.png` (bản hiện tại chưa có cột `Status` và còn dùng tên bảng viết thường).
+  1. ~~Cập nhật `docs/design/Relational_Schema.mwb` và `Relational_Schema.png` (thêm cột `Status`)~~ — đã xong (PR #17). Workbench trên Windows hiển thị tên bảng chữ thường; các script dùng chữ HOA.
   2. ~~Quyết định làm mới DB trên Aiven~~ — đã dựng lại bằng `02`.
   3. ~~Đồng bộ Java DAO/MODEL/Service sang schema 21 bảng~~ — đã xong trên `main`.
 

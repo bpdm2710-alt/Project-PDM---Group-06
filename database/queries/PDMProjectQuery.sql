@@ -165,3 +165,15 @@ WHERE AN.MarkAwarded IS NOT NULL AND A.EndTime IS NOT NULL
 GROUP BY T.Topic_ID, T.Content;
 
 SELECT * FROM vw_AverageScoreByTopic ORDER BY Topic_ID;
+
+-- Q13. Outer join (LEFT JOIN) – Number of attempts of every student
+--      Question: How many attempts has each student made, including students who have not made any attempt?
+--      LEFT JOIN keeps every student; COUNT(A.Attempt_no) counts only real attempts, so a student with none gets 0.
+--      (Not used by the application; the Reports screen shows Q1..Q11.)
+SELECT S.User_ID, CONCAT(U.FirstName, ' ', U.LastName) AS Student_Name, COUNT(A.Attempt_no) AS Total_Attempts
+FROM STUDENT S
+JOIN `USER` U ON U.User_ID = S.User_ID
+LEFT JOIN REGISTRATION R ON R.User_ID = S.User_ID
+LEFT JOIN ATTEMPT A ON A.RegisID = R.RegisID
+GROUP BY S.User_ID, U.FirstName, U.LastName
+ORDER BY Total_Attempts, S.User_ID;
