@@ -176,6 +176,7 @@ Tài khoản dùng trong kịch bản:
 | File | Dùng khi nào |
 |---|---|
 | `database/demo/03_demo_seed.sql` | **Trước mỗi buổi demo** (chạy lại thoải mái, chỉ đụng tới exam `DEMO - ...`) |
+| `database/demo/04_extra_sample_data.sql` | (tùy chọn) Thêm dữ liệu cho 14 khóa ngoài PDM: 84 câu hỏi, 28 exam đã thi xong, 147 đăng ký, 178 lượt làm bài đã chấm. Chạy lại được; gỡ bằng `04_extra_sample_data_cleanup.sql`. Không đụng PDM và exam `DEMO - ...` |
 | `database/normalized_21tables/02_online_examination_full_submission.sql` | Dựng mới toàn bộ DB: 21 bảng, view, trigger, procedure, seed (**xóa dữ liệu cũ**, không chạy lên Aiven nếu chưa thống nhất) |
 | `database/normalized_21tables/05_upgrade_password_hashes.sql` | Ngay sau `02`: đổi mật khẩu seed thành hash PBKDF2 (`Inst@123` / `Stu@123`) |
 | `database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql` | Test ràng buộc (phải ra `PASSED=39 / FAILED=0`), chạy ngay sau `02` trên bản sao. **Không phải file demo** |
@@ -183,7 +184,7 @@ Tài khoản dùng trong kịch bản:
 | `database/queries/PDMProjectQuery.sql` | Query phân tích Q1–Q11 (giống tab **Reports** trong app) + Q12 bản view của Q11 |
 | `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql` | Dữ liệu test riêng (ID 9001+) và dọn dẹp |
 
-Dựng lại DB từ đầu (chỉ khi cần): `02` → (tùy chọn `03_verify` trên bản sao) → `05` → `demo/03_demo_seed.sql` → `COMMIT;`
+Dựng lại DB từ đầu (chỉ khi cần): `02` → (tùy chọn `03_verify` trên bản sao) → `05` → `demo/03_demo_seed.sql` → (tùy chọn) `demo/04_extra_sample_data.sql` → `COMMIT;`
 
 Ghi chú schema: tên bảng **VIẾT HOA**; chỉ `PAPER.PaperKey` là AUTO_INCREMENT, các ID khác app tự sinh = MAX + 1
 trong transaction. Chi tiết chuẩn hóa: [docs/normalization/README.md](docs/normalization/README.md),

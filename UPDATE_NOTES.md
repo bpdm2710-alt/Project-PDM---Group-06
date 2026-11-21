@@ -302,3 +302,16 @@ Test cập nhật theo quy tắc tiên quyết: `EndToEndTest` (sv104 bị chặ
   Statistics/Publish/Question bank, sv103 xem 55/60, sv104 bị chặn môn tiên quyết – sv106 đăng ký được).
 - `database/demo/03_demo_seed.sql`: `DEMO - Open now` có thêm **Paper 2** (cùng câu hỏi, thứ tự khác) để demo xoay vòng đề.
   Kiểm thử: chạy seed 2 lần liên tiếp OK; kịch bản demo 17/17; tính năng mới 11/11.
+
+## Bước 13 – Dữ liệu mẫu thêm cho các khóa ngoài PDM (tùy chọn)
+
+- `database/demo/04_extra_sample_data.sql`: 14 khóa (2–15), mỗi khóa 6 câu hỏi (4 MCQ + 2 tự luận) và 2 exam
+  đã thi xong (`<khóa> Practice Test` 40 ngày trước, 2 lượt; `<khóa> Progress Quiz` 12 ngày trước, 1 lượt).
+  Tổng 84 câu hỏi, 28 exam, 147 đăng ký, 178 lượt làm bài, 820 câu trả lời, tất cả đã chấm.
+- ID cố định: Quest_ID 2001–2084, Exam_ID 2001–2028, RegisID 20001–20147 (app sinh MAX + 1 nên dòng tạo sau không rơi vào).
+  Chạy lại được (tự xóa khối của mình trước khi chèn); `04_extra_sample_data_cleanup.sql` để gỡ.
+- Tôn trọng luật app: chỉ xếp sinh viên vào khóa khi đã đậu môn tiên quyết (`REQUIRES`); sv104 không thi DSA;
+  không đụng PDM (khóa 1, topic 1–4) và exam `DEMO - ...` → kịch bản demo không đổi.
+- Kiểm thử với dữ liệu mẫu đã nạp: demo 17/17, tính năng mới 11/11, luồng sinh viên, chấm, ghi giảng viên,
+  đăng nhập đều qua; Reports Q1–Q11 khớp file SQL; smoke test mọi màn hình cho 14 giảng viên + 20 sinh viên 34/34.
+  Chạy 2 lần liên tiếp ra kết quả giống hệt.

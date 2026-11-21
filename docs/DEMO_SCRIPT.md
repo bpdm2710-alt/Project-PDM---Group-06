@@ -100,6 +100,17 @@ PDM yêu cầu đã đậu **Data Structures and Algorithms** (bảng `REQUIRES`
 
 ---
 
+## Phần F (tùy chọn) — Khóa khác ngoài PDM · ~2 phút
+
+Cần chạy thêm `database/demo/04_extra_sample_data.sql` (một lần là đủ, không cần chạy lại trước mỗi buổi).
+
+| # | Tài khoản | Thao tác | Kết quả mong đợi |
+|---|---|---|---|
+| F1 | `inst02@hcmiu.edu.vn` (OOP) | **Exams**, **Question bank**, **Statistics**, **Reports** | `OOP Practice Test`, `OOP Progress Quiz` đã thi xong; 8 câu hỏi; điểm trung bình theo topic; Reports có dữ liệu |
+| F2 | `sv115@student.hcmiu.edu.vn` | **Results** | Khoảng 25 kết quả ở 12 khóa, có đậu có rớt |
+
+Sinh viên chỉ được xếp vào khóa khi đã đậu môn tiên quyết, nên các khóa ở cuối chuỗi (Data Mining, Distributed Systems) có ít người thi.
+
 ## Câu hỏi hay gặp khi trình bày (gợi ý trả lời)
 
 * **Vì sao giờ thi không phụ thuộc máy?** App lấy giờ bằng `SELECT NOW()` trên DB, mỗi kết nối đặt `time_zone = '+07:00'`.
