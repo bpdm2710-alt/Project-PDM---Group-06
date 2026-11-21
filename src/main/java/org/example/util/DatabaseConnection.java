@@ -5,6 +5,10 @@ import com.zaxxer.hikari.HikariDataSource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Properties;
@@ -26,6 +30,14 @@ import java.util.regex.Pattern;
  *   db.url, db.username, db.password                  (required)
  *   db.ssl.truststore, db.ssl.truststore.password     (Aiven; leave out for a local MySQL)
  *   db.timezone   (optional, default +07:00)          db.pool.size (optional, default 5)
+ *
+ * Where the settings come from (first one found):
+ *   1. the file named by -Dapp.config=<path> (or the --config=<path> argument of Main)
+ *   2. application.properties in the folder of the jar (the submitted / shared build)
+ *   3. application.properties on the classpath (src/main/Sources, used when running from IntelliJ)
+ * The packaged jar does not contain application.properties (see pom.xml), so a jar never carries a
+ * password: whoever runs it puts their own application.properties next to it. A relative
+ * db.ssl.truststore path in a file is resolved against that file's folder.
  */
 public final class DatabaseConnection {
 
@@ -34,25 +46,82 @@ public final class DatabaseConnection {
 
     private static volatile HikariDataSource pool;
 
+    /** Folder of the settings file (null when read from the classpath). */
+    private static Path configDir;
+    private static String configSource;
+
     static {
-        try (InputStream input =
-                     DatabaseConnection.class
-                             .getClassLoader()
-                             .getResourceAsStream("application.properties")) {
-
-            if (input == null) {
-                throw new IllegalStateException(
-                        "application.properties not found");
-            }
-
-            PROPERTIES.load(input);
-
+        try {
+            load();
         } catch (IOException e) {
             throw new ExceptionInInitializerError(e);
         }
     }
 
     private DatabaseConnection() {
+    }
+
+    private static void load() throws IOException {
+        String explicit = System.getProperty("app.config");
+        if (explicit != null && !explicit.isBlank()) {
+            Path f = Paths.get(explicit.trim()).toAbsolutePath();
+            if (!Files.isRegularFile(f)) {
+                throw new IllegalStateException("app.config file not found: " + f);
+            }
+            loadFile(f);
+            return;
+        }
+        Path besideJar = jarFolder();
+        if (besideJar != null && Files.isRegularFile(besideJar.resolve("application.properties"))) {
+            loadFile(besideJar.resolve("application.properties"));
+            return;
+        }
+        try (InputStream input = DatabaseConnection.class.getClassLoader()
+                .getResourceAsStream("application.properties")) {
+            if (input == null) {
+                throw new IllegalStateException("application.properties not found. Put it "
+                        + (besideJar != null ? "next to the jar (" + besideJar + ")" : "in src/main/Sources")
+                        + " or start with -Dapp.config=<path>. Copy application.properties.example.");
+            }
+            PROPERTIES.load(input);
+            configSource = "classpath:application.properties";
+        }
+    }
+
+    private static void loadFile(Path f) throws IOException {
+        try (InputStream input = Files.newInputStream(f)) {
+            PROPERTIES.load(input);
+        }
+        configDir = f.getParent();
+        configSource = f.toString();
+    }
+
+    /** The folder of the running jar, or null when not started from a jar (IntelliJ, tests). */
+    private static Path jarFolder() {
+        try {
+            var src = DatabaseConnection.class.getProtectionDomain().getCodeSource();
+            if (src == null) {
+                return null;
+            }
+            Path p = Paths.get(src.getLocation().toURI());
+            return Files.isRegularFile(p) && p.toString().endsWith(".jar") ? p.getParent() : null;
+        } catch (URISyntaxException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Where the settings were read from (shown by Main --check). */
+    public static String configSource() {
+        return configSource;
+    }
+
+    /** db.url without the password (shown by Main --check). */
+    public static String url() {
+        return PROPERTIES.getProperty("db.url", "").trim();
+    }
+
+    public static String username() {
+        return PROPERTIES.getProperty("db.username", "").trim();
     }
 
     /** A connection from the pool. Always close it (try-with-resources) to give it back. */
@@ -100,7 +169,11 @@ public final class DatabaseConnection {
         // Aiven needs the truststore (sslMode=VERIFY_CA); a local MySQL without SSL does not.
         String trustStore = PROPERTIES.getProperty("db.ssl.truststore");
         if (trustStore != null && !trustStore.isBlank()) {
-            System.setProperty("javax.net.ssl.trustStore", trustStore.trim());
+            Path ts = Paths.get(trustStore.trim());
+            if (!ts.isAbsolute() && configDir != null) {
+                ts = configDir.resolve(ts);       // e.g. db.ssl.truststore=aiven-truststore.p12 next to the jar
+            }
+            System.setProperty("javax.net.ssl.trustStore", ts.toString());
             System.setProperty("javax.net.ssl.trustStorePassword",
                     PROPERTIES.getProperty("db.ssl.truststore.password", "").trim());
             System.setProperty("javax.net.ssl.trustStoreType", "PKCS12");

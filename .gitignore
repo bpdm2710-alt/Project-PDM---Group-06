@@ -45,3 +45,6 @@ build/
 
 # Local test DB config for the end-to-end tests
 src/test/resources/application.properties
+
+# packaged build for submission (contains a password)
+submission/

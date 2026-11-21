@@ -29,7 +29,14 @@
             <version>5.1.0</version>
         </dependency>
         <dependency>
-            <!-- HikariCP logs through SLF4J; nop = no log output, no "no provider" warning -->
+            <!-- HikariCP logs through SLF4J. The API must be the same 2.0.x line as slf4j-nop: HikariCP
+                 brings slf4j-api 1.7, which cannot find a 2.0 provider and prints a StaticLoggerBinder warning. -->
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.13</version>
+        </dependency>
+        <dependency>
+            <!-- nop = no log output -->
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-nop</artifactId>
             <version>2.0.13</version>
@@ -51,6 +58,14 @@
                     <exclude>application.properties.example</exclude>
                 </excludes>
             </resource>
+            <!-- demo SQL files, run from the jar by Main (setup-demo, cleanup-demo, add-sample-data commands) -->
+            <resource>
+                <directory>database/demo</directory>
+                <targetPath>sql</targetPath>
+                <includes>
+                    <include>*.sql</include>
+                </includes>
+            </resource>
         </resources>
         <plugins>
             <plugin>
@@ -69,6 +84,11 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.4.1</version>
                 <configuration>
+                    <!-- never pack the database password: the jar reads application.properties placed next
+                         to it (IntelliJ runs still use src/main/Sources/application.properties) -->
+                    <excludes>
+                        <exclude>application.properties</exclude>
+                    </excludes>
                     <archive>
                         <manifest>
                             <mainClass>${main.class}</mainClass>

@@ -315,3 +315,19 @@ Test cập nhật theo quy tắc tiên quyết: `EndToEndTest` (sv104 bị chặ
 - Kiểm thử với dữ liệu mẫu đã nạp: demo 17/17, tính năng mới 11/11, luồng sinh viên, chấm, ghi giảng viên,
   đăng nhập đều qua; Reports Q1–Q11 khớp file SQL; smoke test mọi màn hình cho 14 giảng viên + 20 sinh viên 34/34.
   Chạy 2 lần liên tiếp ra kết quả giống hệt.
+
+## Bước 14 – Đóng gói bản nộp không chứa mật khẩu + chạy SQL demo từ app
+
+- `pom.xml`: jar **không** đóng `application.properties` nữa; đóng thêm `database/demo/*.sql` vào `sql/` trong jar.
+- `DatabaseConnection`: đọc settings theo thứ tự `--config=` / `-Dapp.config` → `application.properties` cạnh jar →
+  classpath (IntelliJ, như cũ). Truststore đường dẫn tương đối tính theo thư mục file settings.
+- `Main`: lệnh `--check`, `--setup-demo`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`
+  (không có lệnh thì mở app như cũ; thiếu settings thì báo hộp thoại rõ ràng).
+- `util/SqlScriptRunner`: chạy file SQL trong jar bằng kết nối của app, cả file trong 1 transaction (lỗi → rollback),
+  in bảng kết quả của các câu SELECT.
+- `database/demo/03_demo_cleanup.sql` (mới): xóa các exam `DEMO - ...`.
+- `04_extra_sample_data.sql`: gộp INSERT nhiều dòng (2163 → 351 câu lệnh, cùng dữ liệu, đã so sánh từng dòng).
+- `packaging/` + `make_submission.bat|.sh`: gom thư mục `submission/` (jar, run.bat, check_connection.bat, setup_demo.bat,
+  cleanup_demo.bat, add/cleanup_sample_data.bat, app.sh, HUONG_DAN.txt, mẫu application.properties). `submission/` nằm trong `.gitignore`.
+- Kiểm thử: chạy jar với settings cạnh jar – mọi lệnh OK, chạy lặp lại OK, lỗi giữa chừng rollback sạch;
+  dữ liệu nạp bằng jar giống hệt nạp bằng MySQL; demo 17/17, smoke test dữ liệu mẫu 34/34, unit test 0 lỗi.

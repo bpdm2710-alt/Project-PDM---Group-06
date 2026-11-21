@@ -175,7 +175,7 @@ Tài khoản dùng trong kịch bản:
 
 | File | Dùng khi nào |
 |---|---|
-| `database/demo/03_demo_seed.sql` | **Trước mỗi buổi demo** (chạy lại thoải mái, chỉ đụng tới exam `DEMO - ...`) |
+| `database/demo/03_demo_seed.sql` | **Trước mỗi buổi demo** (chạy lại thoải mái, chỉ đụng tới exam `DEMO - ...`). Gỡ: `03_demo_cleanup.sql` |
 | `database/demo/04_extra_sample_data.sql` | (tùy chọn) Thêm dữ liệu cho 14 khóa ngoài PDM: 84 câu hỏi, 28 exam đã thi xong, 147 đăng ký, 178 lượt làm bài đã chấm. Chạy lại được; gỡ bằng `04_extra_sample_data_cleanup.sql`. Không đụng PDM và exam `DEMO - ...` |
 | `database/normalized_21tables/02_online_examination_full_submission.sql` | Dựng mới toàn bộ DB: 21 bảng, view, trigger, procedure, seed (**xóa dữ liệu cũ**, không chạy lên Aiven nếu chưa thống nhất) |
 | `database/normalized_21tables/05_upgrade_password_hashes.sql` | Ngay sau `02`: đổi mật khẩu seed thành hash PBKDF2 (`Inst@123` / `Stu@123`) |
@@ -195,13 +195,48 @@ sơ đồ: [docs/design/](docs/design/).
 ```bash
 mvn test        # unit test, không cần DB
 mvn package     # tạo target/Online_Examination_System-1.0-SNAPSHOT-all.jar
-java -jar target/Online_Examination_System-1.0-SNAPSHOT-all.jar
 ```
 
-* Jar được đóng kèm `application.properties` của máy bạn → **không chia sẻ ra ngoài nhóm**.
-* Test end-to-end (`EndToEndTest`) **ghi dữ liệu** → chỉ chạy trên **MySQL cục bộ**, KHÔNG chạy lên Aiven:
-  dựng DB local bằng `02` + `05` + `demo/03_demo_seed.sql`, tạo `src/test/resources/application.properties`
-  trỏ tới `localhost`, rồi `mvn test -Dit.db=local`.
+### Jar không chứa mật khẩu
+
+Jar **không đóng kèm** `application.properties`. Khi chạy, app tìm settings theo thứ tự:
+
+1. File chỉ định bằng `--config=<đường dẫn>` (hoặc `-Dapp.config=<đường dẫn>`)
+2. `application.properties` **nằm cạnh file jar**
+3. `src/main/Sources/application.properties` (khi chạy từ IntelliJ, như trước)
+
+Nên: **IntelliJ dùng tài khoản của bạn để demo**, còn **bản nộp dùng file `application.properties` riêng** đặt cạnh jar, với tài khoản Aiven tạo riêng cho việc nộp. Hai file không đụng nhau.
+Đường dẫn truststore tương đối (vd `aiven-truststore.p12`) được tính từ thư mục chứa file settings.
+
+### Tạo bản nộp
+
+1. IntelliJ → tab **Maven** → *Lifecycle* → `clean`, rồi `package`.
+2. Chạy `make_submission.bat` (macOS/Linux: `./make_submission.sh`) → tạo thư mục `submission/` (đã nằm trong `.gitignore`).
+3. Trong `submission/`: điền `application.properties` (tài khoản nộp bài), chép `aiven-truststore.p12` vào.
+4. Thử: `check_connection.bat` → `setup_demo.bat` → `run.bat`. Nén thư mục `submission/` để nộp.
+
+| File trong `submission/` | Làm gì |
+|---|---|
+| `run.bat` | Mở app |
+| `check_connection.bat` | Kiểm tra kết nối: file settings, DB, số bảng, giờ DB |
+| `setup_demo.bat` | **Mở phiên demo**: tạo lại các exam `DEMO - ...` (`DEMO - Open now` mở 180 phút) |
+| `cleanup_demo.bat` | **Đóng phiên demo**: xóa các exam `DEMO - ...` và mọi bài làm trên đó |
+| `add_sample_data.bat` / `cleanup_sample_data.bat` | Thêm / gỡ dữ liệu mẫu 14 khóa |
+| `app.sh` | macOS/Linux: `./app.sh --setup-demo` … |
+| `HUONG_DAN.txt` | Hướng dẫn ngắn cho người chấm |
+
+Các lệnh này chạy đúng các file trong `database/demo/` (đã đóng vào jar), **không cần Workbench**.
+Mỗi file chạy trong 1 transaction: lỗi ở đâu thì rollback, không để dữ liệu dở dang.
+Tài khoản nộp bài cần quyền `SELECT, INSERT, UPDATE, DELETE` trên schema `Online_Examination`.
+
+Từ IntelliJ cũng chạy được: *Run → Edit Configurations → Main → Program arguments* = `--setup-demo`
+(hoặc `--check`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`).
+
+### Test end-to-end
+
+`EndToEndTest` **ghi dữ liệu** → chỉ chạy trên **MySQL cục bộ**, KHÔNG chạy lên Aiven:
+dựng DB local bằng `02` + `05` + `demo/03_demo_seed.sql`, tạo `src/test/resources/application.properties`
+trỏ tới `localhost`, rồi `mvn test -Dit.db=local`.
 
 ## 11. Cấu trúc project
 
@@ -214,94 +249,7 @@ src/main/java/org/example/
 ├── session/                  # Session (người dùng đang đăng nhập)
 └── util/                     # DatabaseConnection (HikariCP), PasswordHasher
 src/main/Sources/             # application.properties(.example)
-src/test/java/                # unit test + it/EndToEndTest
-database/                     # các file SQL (mục 9)
-docs/                         # DEMO_SCRIPT, normalization, design, ui
-```
-
-Lịch sử thay đổi theo từng bước: [UPDATE_NOTES.md](UPDATE_NOTES.md).
-
----
-
-**Group 06 — Principles of Database Management, International University (VNU-HCM)**
-
-Làm tiếp theo **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)** (phần A → E: làm bài, hết giờ, chấm bài, báo cáo, môn tiên quyết).
-
-> ⚠️ DB là **dùng chung**: chạy `03_demo_seed.sql` sẽ **reset dữ liệu `DEMO - ...` của cả nhóm**. Báo trong nhóm trước khi chạy.
-> `DEMO - Open now` mở **180 phút** kể từ lúc chạy script; quá giờ thì chạy lại script.
-> Chỉ `sv101`, `sv102`, `sv103` được đăng ký sẵn exam này.
-
-## 7. Tài khoản demo
-
-| Vai trò | Email | Mật khẩu |
-|---|---|---|
-| Giảng viên (ID 1–15) | `inst01@hcmiu.edu.vn` … `inst15@hcmiu.edu.vn` | `Inst@123` |
-| Sinh viên (ID 101–120) | `sv101@student.hcmiu.edu.vn` … `sv120@student.hcmiu.edu.vn` | `Stu@123` |
-
-Tài khoản dùng trong kịch bản:
-
-| Tài khoản | Dùng để demo |
-|---|---|
-| `sv103` | Làm bài `DEMO - Open now`, nộp, làm lượt 2 rồi **Resume**, xem kết quả sau khi chấm (55/60) |
-| `sv101` | Lượt `DEMO - Expired attempt` bị hệ thống tự đóng khi hết giờ (10/40) |
-| `inst01` | Khóa PDM: Grading, Reports Q1–Q11, Statistics, Publish `DEMO - Draft`, Question bank |
-| `sv104` | Đăng ký `DEMO - Upcoming` → **bị chặn** vì chưa đậu môn tiên quyết DSA |
-| `sv106` | Đăng ký `DEMO - Upcoming` → thành công (đã đậu DSA) |
-
-## 8. Xử lý lỗi thường gặp
-
-| Hiện tượng | Nguyên nhân / cách xử lý |
-|---|---|
-| `Cannot connect to the database: ...` | Sai `application.properties` (username, password, đường dẫn / mật khẩu truststore), hoặc mất mạng. File phải nằm đúng `src/main/Sources/`. |
-| `Email or password incorrect` dù nhập đúng | Code cũ → `git pull` + Maven Reload. Nếu DB mới dựng lại: chạy `05_upgrade_password_hashes.sql` + `COMMIT;`. |
-| Không thấy exam để làm / thẻ toàn **COMPLETED** | Seed demo chưa chạy hoặc đã quá 180 phút → chạy lại `03_demo_seed.sql` + `COMMIT;`. Đăng nhập đúng sv101–sv103. |
-| Chạy script xong app không thấy thay đổi | Workbench đang tắt auto-commit → `COMMIT;`. |
-| IntelliJ báo đỏ tên bảng/cột trong file `.sql` hoặc chuỗi SQL | Data source của IntelliJ còn cache schema cũ → tab *Database* → chuột phải data source → **Refresh**. Không ảnh hưởng chạy app. |
-| Báo đỏ `import com.zaxxer...` / thiếu thư viện | Chưa Maven Reload. |
-| `Unsupported class file major version` / lỗi Java | Project SDK chưa phải 21. |
-
-## 9. Các file SQL
-
-| File | Dùng khi nào |
-|---|---|
-| `database/demo/03_demo_seed.sql` | **Trước mỗi buổi demo** (chạy lại thoải mái, chỉ đụng tới exam `DEMO - ...`) |
-| `database/normalized_21tables/02_online_examination_full_submission.sql` | Dựng mới toàn bộ DB: 21 bảng, view, trigger, procedure, seed (**xóa dữ liệu cũ**, không chạy lên Aiven nếu chưa thống nhất) |
-| `database/normalized_21tables/05_upgrade_password_hashes.sql` | Ngay sau `02`: đổi mật khẩu seed thành hash PBKDF2 (`Inst@123` / `Stu@123`) |
-| `database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql` | Test ràng buộc (phải ra `PASSED=39 / FAILED=0`), chạy ngay sau `02` trên bản sao. **Không phải file demo** |
-| `database/normalized_21tables/01_schema_ddl_for_mwb_import.sql` | Chỉ DDL, để Reverse Engineer ra `.mwb` trong Workbench |
-| `database/queries/PDMProjectQuery.sql` | Query phân tích Q1–Q11 (giống tab **Reports** trong app) + Q12 bản view của Q11 |
-| `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql` | Dữ liệu test riêng (ID 9001+) và dọn dẹp |
-
-Dựng lại DB từ đầu (chỉ khi cần): `02` → (tùy chọn `03_verify` trên bản sao) → `05` → `demo/03_demo_seed.sql` → `COMMIT;`
-
-Ghi chú schema: tên bảng **VIẾT HOA**; chỉ `PAPER.PaperKey` là AUTO_INCREMENT, các ID khác app tự sinh = MAX + 1
-trong transaction. Chi tiết chuẩn hóa: [docs/normalization/README.md](docs/normalization/README.md),
-sơ đồ: [docs/design/](docs/design/).
-
-## 10. Build, test, đóng gói
-
-```bash
-mvn test        # unit test, không cần DB
-mvn package     # tạo target/Online_Examination_System-1.0-SNAPSHOT-all.jar
-java -jar target/Online_Examination_System-1.0-SNAPSHOT-all.jar
-```
-
-* Jar được đóng kèm `application.properties` của máy bạn → **không chia sẻ ra ngoài nhóm**.
-* Test end-to-end (`EndToEndTest`) **ghi dữ liệu** → chỉ chạy trên **MySQL cục bộ**, KHÔNG chạy lên Aiven:
-  dựng DB local bằng `02` + `05` + `demo/03_demo_seed.sql`, tạo `src/test/resources/application.properties`
-  trỏ tới `localhost`, rồi `mvn test -Dit.db=local`.
-
-## 11. Cấu trúc project
-
-```
-src/main/java/org/example/
-├── Main.java                 # điểm chạy app
-├── ui/                       # Swing: LoginFrame, StudentDashBoard, InstructorDashBoard, panel/, components/
-├── Service/                  # nghiệp vụ: AuthServiceImpl, StudentServiceImpl, InstructorServiceImpl, Db (giờ DB)
-├── DAO/jdbc/                 # truy vấn SQL: AttemptDAO, ExamDAO, ReportDAO, StudentDAO, ...
-├── session/                  # Session (người dùng đang đăng nhập)
-└── util/                     # DatabaseConnection (HikariCP), PasswordHasher
-src/main/Sources/             # application.properties(.example)
+packaging/                    # các file .bat cho bản nộp (make_submission chép vào submission/)
 src/test/java/                # unit test + it/EndToEndTest
 database/                     # các file SQL (mục 9)
 docs/                         # DEMO_SCRIPT, normalization, design, ui

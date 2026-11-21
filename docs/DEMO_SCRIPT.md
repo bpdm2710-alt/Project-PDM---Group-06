@@ -13,6 +13,7 @@ Thời lượng: khoảng 12–15 phút. Cần 1 máy chạy app (có thể mở
 2. Mở MySQL Workbench, kết nối Aiven, mở và chạy **toàn bộ** file
    `database/demo/03_demo_seed.sql` (biểu tượng tia sét ⚡, không phải "execute current statement").
 3. Nếu Workbench đang tắt auto-commit: chạy thêm `COMMIT;`.
+   *Không có Workbench?* Chạy `setup_demo.bat` trong bản nộp, hoặc trong IntelliJ chạy `Main` với Program arguments `--setup-demo`.
 4. Kết quả cuối của script phải ra 4 dòng:
 
    | Title | Status | registrations | open_attempts |
@@ -28,6 +29,7 @@ Thời lượng: khoảng 12–15 phút. Cần 1 máy chạy app (có thể mở
 > * Script demo **reset** các exam `DEMO - ...` trên DB chung (Aiven) → báo nhóm trước khi chạy, đừng chạy lúc người khác đang demo.
 > * `DEMO - Open now` chỉ mở **180 phút** tính từ lúc chạy script. Quá giờ → chạy lại script.
 > * Chạy lại script là đủ để demo lại từ đầu; không cần chạy lại `02` hay `05`.
+> * Demo xong muốn dọn: `03_demo_cleanup.sql` (hoặc `cleanup_demo.bat` / `--cleanup-demo`).
 > * File `03_verify_constraints_...` trong `normalized_21tables/` là **test ràng buộc**, KHÔNG dùng cho demo.
 
 Mật khẩu: sinh viên `Stu@123`, giảng viên `Inst@123`.
