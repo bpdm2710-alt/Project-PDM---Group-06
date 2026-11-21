@@ -31,6 +31,10 @@ public final class AttemptDAO {
     public record InProgress(int attemptNo, Timestamp start, int paperKey) {
     }
 
+    /** An unfinished attempt together with the length of its exam (used to find the expired ones). */
+    public record OpenAttempt(int regisId, int attemptNo, Timestamp start, int duration) {
+    }
+
     /** {@code end} is null while the attempt is in progress. */
     public record Row(int paperKey, int examId, Timestamp start, Timestamp end, int ownerId, int duration) {
         public boolean inProgress() {
@@ -92,6 +96,27 @@ public final class AttemptDAO {
                 return rs.next() ? new InProgress(rs.getInt(1), rs.getTimestamp(2), rs.getInt(3)) : null;
             }
         }
+    }
+
+    /**
+     * Every unfinished attempt (EndTime IS NULL) of the student, oldest first. The caller decides
+     * which of them have run out of time (StartTime + Duration).
+     */
+    public static List<OpenAttempt> openAttemptsOfStudent(Connection c, int studentId) throws SQLException {
+        List<OpenAttempt> out = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT a.RegisID, a.Attempt_no, a.StartTime, e.Duration " +
+                "FROM ATTEMPT a JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
+                "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
+                "WHERE r.User_ID = ? AND a.EndTime IS NULL ORDER BY a.StartTime, a.RegisID, a.Attempt_no")) {
+            ps.setInt(1, studentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(new OpenAttempt(rs.getInt(1), rs.getInt(2), rs.getTimestamp(3), rs.getInt(4)));
+                }
+            }
+        }
+        return out;
     }
 
     public static int countAttempts(Connection c, int regisId) throws SQLException {

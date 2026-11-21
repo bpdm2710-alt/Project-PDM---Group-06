@@ -42,6 +42,7 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public StudentOverview getOverview(int studentId) throws ServiceException {
+        closeExpiredAttemptsOf(studentId);
         return Db.run(conn -> {
             StudentProfile profile = loadProfile(conn, studentId);
             List<ExamCard> exams = loadRegisteredExams(conn, studentId);
@@ -71,11 +72,13 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public List<ExamCard> listMyExams(int studentId) throws ServiceException {
+        closeExpiredAttemptsOf(studentId);
         return Db.run(conn -> loadRegisteredExams(conn, studentId));
     }
 
     @Override
     public List<AttemptResult> listResults(int studentId) throws ServiceException {
+        closeExpiredAttemptsOf(studentId);
         return Db.run(conn -> loadFinishedAttempts(conn, studentId));
     }
 
@@ -114,6 +117,7 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public List<ExamCard> listCourseExams(int studentId, int courseId) throws ServiceException {
+        closeExpiredAttemptsOf(studentId);
         return Db.run(conn -> loadExamCards(conn, studentId, courseId, null, false));
     }
 
@@ -149,6 +153,10 @@ public class StudentServiceImpl implements StudentService {
 
     @Override
     public AttemptSession startAttempt(int regisId) throws ServiceException {
+        // An attempt whose time has run out is closed and graded in its OWN committed transaction
+        // first. If this were done inside the transaction below, the "no attempts left" / "exam
+        // closed" errors would roll the closing back and the attempt would stay open forever.
+        closeExpiredAttempt(regisId);
         return Db.run(conn -> Db.tx(conn, c -> {
             AttemptDAO.RegInfo reg = loadReg(c, regisId);
             checkOwner(reg.ownerId());
@@ -163,8 +171,10 @@ public class StudentServiceImpl implements StudentService {
                 if (left > 0) {
                     return buildSession(c, reg, new AttemptKey(regisId, open.attemptNo()), open.paperKey(), left);
                 }
-                // Time ran out while the student was away: close it with what was saved.
-                gradeAndClose(c, regisId, open.attemptNo(), start.plusMinutes(reg.duration()));
+                // The time ran out between closeExpiredAttempt and this transaction (rare): nothing
+                // is changed here, the next call closes it.
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "Your previous attempt has just timed out. Please open the exam again.");
             }
 
             // 2. Start a new attempt.
@@ -378,6 +388,56 @@ public class StudentServiceImpl implements StudentService {
         }
         return new AttemptSession(key, reg.title(), reg.courseName(), reg.maxAttempts(),
                 secondsRemaining, questions, saved);
+    }
+
+    /**
+     * Closes (grades + sets EndTime) the unfinished attempt of the registration when its time is over.
+     * Runs in its own transaction and commits, so later errors cannot undo it. Does nothing when
+     * there is no unfinished attempt, or when it still has time left.
+     */
+    private static void closeExpiredAttempt(int regisId) throws ServiceException {
+        Db.run(conn -> Db.tx(conn, c -> {
+            AttemptDAO.RegInfo reg = AttemptDAO.findRegistrationForUpdate(c, regisId);
+            if (reg == null) {
+                return null; // the main flow reports NOT_FOUND
+            }
+            checkOwner(reg.ownerId());
+            AttemptDAO.InProgress open = AttemptDAO.findInProgress(c, regisId);
+            if (open != null) {
+                LocalDateTime start = open.start().toLocalDateTime();
+                if (secondsLeft(start, reg.duration(), LocalDateTime.now().withNano(0)) == 0) {
+                    gradeAndClose(c, regisId, open.attemptNo(), start.plusMinutes(reg.duration()));
+                }
+            }
+            return null;
+        }));
+    }
+
+    /**
+     * Closes every unfinished attempt of the student whose time is over, so lists and results do
+     * not show a finished exam as "in progress". A failure here never breaks the screen that
+     * called it: the lists still load, and the next call tries again.
+     */
+    private static void closeExpiredAttemptsOf(int studentId) {
+        try {
+            Db.run(conn -> Db.tx(conn, c -> {
+                LocalDateTime now = LocalDateTime.now().withNano(0);
+                for (AttemptDAO.OpenAttempt o : AttemptDAO.openAttemptsOfStudent(c, studentId)) {
+                    LocalDateTime start = o.start().toLocalDateTime();
+                    if (secondsLeft(start, o.duration(), now) > 0) {
+                        continue;
+                    }
+                    // Lock the row and look again: the student may have submitted in the meantime.
+                    AttemptDAO.Row at = AttemptDAO.find(c, o.regisId(), o.attemptNo(), true);
+                    if (at != null && at.inProgress()) {
+                        gradeAndClose(c, o.regisId(), o.attemptNo(), start.plusMinutes(o.duration()));
+                    }
+                }
+                return null;
+            }));
+        } catch (ServiceException e) {
+            // ignored on purpose, see the method comment
+        }
     }
 
     /**
