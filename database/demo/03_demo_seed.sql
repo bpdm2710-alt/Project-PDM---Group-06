@@ -8,8 +8,10 @@
 --
 -- What you get (course 1 = Principles of Database Management, taught by inst01/inst02):
 --   DEMO - Open now          opened 5 min ago, 180 min, 2 attempts; sv101, sv102, sv103 registered
---                           -> log in as a student and press Start.
---   DEMO - Upcoming          opens in 2 days; nobody registered -> test "Register".
+--                           -> log in as a student and press Start. 2 papers (same questions, other
+--                           order): a retake gets the other paper (paper rotation).
+--   DEMO - Upcoming          opens in 2 days; nobody registered -> test "Register" (PDM requires Data
+--                           Structures and Algorithms: sv104 is blocked, sv106 / sv111 may register).
 --   DEMO - Expired attempt   opened 3 h ago, 60 min, 1 attempt; sv101 has an attempt that was never
 --                           submitted (EndTime NULL) -> opening My exams / Results must close and
 --                           grade it automatically (fix of Step 1).
@@ -53,6 +55,11 @@ INSERT INTO `EXAM_QUESTION_MARKS` (`Exam_ID`, `Quest_ID`, `Marks`) VALUES
   (@e1, 1, 10.00), (@e1, 2, 10.00), (@e1, 3, 10.00), (@e1, 4, 10.00), (@e1, 21, 20.00);
 INSERT INTO `PAPER_QUESTION` (`PaperKey`, `Quest_ID`, `QuestionOrder`) VALUES
   (@p1, 1, 1), (@p1, 2, 2), (@p1, 3, 3), (@p1, 4, 4), (@p1, 21, 5);
+-- paper 2 = same 5 questions (same marks) in another order: a retake / the next student gets the other paper
+INSERT INTO `PAPER` (`PaperID`, `Exam_ID`) VALUES (2, @e1);
+SET @p1b = LAST_INSERT_ID();
+INSERT INTO `PAPER_QUESTION` (`PaperKey`, `Quest_ID`, `QuestionOrder`) VALUES
+  (@p1b, 4, 1), (@p1b, 3, 2), (@p1b, 2, 3), (@p1b, 1, 4), (@p1b, 21, 5);
 INSERT INTO `REGISTRATION` (`RegisID`, `User_ID`, `Exam_ID`, `RegisDate`) VALUES
   (@last_reg + 1, 101, @e1, DATE_SUB(@now, INTERVAL 1 DAY)),
   (@last_reg + 2, 102, @e1, DATE_SUB(@now, INTERVAL 1 DAY)),
