@@ -6,10 +6,11 @@ import java.util.*;
 
 public class QuestionDAO {
     public static final String SELECT_BASE =
-            "SELECT q.question_id, q.instructor_id, q.topic_id, q.content, q.difficulty, q.question_type, " +
-            "m.allow_multiple, s.model_answer FROM question q " +
-            "LEFT JOIN mcq m ON q.question_id = m.question_id " +
-            "LEFT JOIN short_answer s ON q.question_id = s.question_id";
+            "SELECT q.Quest_ID AS questionId, q.User_ID AS instructorId, q.Topic_ID, q.Content, q.Difficulty, " +
+            "CASE WHEN m.Quest_ID IS NOT NULL THEN 'MCQ' WHEN s.Quest_ID IS NOT NULL THEN 'Short answer' ELSE 'UNKNOWN' END AS question_type, " +
+            "s.Answer_key AS model_answer FROM question q " +
+            "LEFT JOIN mcq m ON q.Quest_ID = m.Quest_ID " +
+            "LEFT JOIN short_answer s ON q.Quest_ID = s.Quest_ID";
 
     private final Connection conn; private final QuestionOptionDAO optionDAO;
     public QuestionDAO(Connection conn) { 
@@ -26,9 +27,10 @@ public class QuestionDAO {
 
     public static Question mapRow(ResultSet rs) throws SQLException {
         Question q = new Question(
-                rs.getInt("question_id"), rs.getInt("instructor_id"), rs.getInt("topic_id"),
-                rs.getString("question_type"), rs.getString("content"), rs.getString("difficulty"));
-        q.setAllowMultipleChoice(rs.getBoolean("allow_multiple"));
+                rs.getInt("questionId"), rs.getInt("instructorId"), rs.getInt("Topic_ID"),
+                rs.getString("question_type"), rs.getString("Content"), rs.getInt("Difficulty"));
+        
+        q.setAllowMultipleChoice(false); 
         q.setModelAnswer(rs.getString("model_answer"));
         return q;
     }

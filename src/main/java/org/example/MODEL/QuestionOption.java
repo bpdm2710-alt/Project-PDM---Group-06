@@ -19,12 +19,12 @@ public class QuestionOption {
     public void setQuestionId(int questionId) { 
         this.questionId = questionId; }
     
-    public int getOptionNo() { 
-        return optionNo; }
+    public int getOptionNo() {
+         return optionNo; }
     
     public void setOptionNo(int optionNo) { 
         this.optionNo = optionNo; }
-    
+        
     public String getContent() { 
         return content; }
     

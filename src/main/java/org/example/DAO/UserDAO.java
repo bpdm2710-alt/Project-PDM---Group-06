@@ -1,7 +1,7 @@
 package org.example.DAO;
 
 import org.example.MODEL.User;
-import org.example.util.DatabaseConnection; // Import từ util
+import org.example.util.DatabaseConnection;
 import java.sql.*;
 
 public class UserDAO {
@@ -12,7 +12,7 @@ public class UserDAO {
                      "FROM `user` u " +
                      "LEFT JOIN `student` s ON u.User_ID = s.User_ID " +
                      "LEFT JOIN `instructor` i ON u.User_ID = i.User_ID " +
-                     "WHERE u.Email = ? AND u.Password_hash_ = ?";
+                     "WHERE u.Email = ? AND u.Password_hash = ?";
         
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {

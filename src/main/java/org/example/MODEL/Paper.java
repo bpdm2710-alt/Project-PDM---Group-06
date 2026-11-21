@@ -2,12 +2,12 @@ package org.example.MODEL;
 
 public class Paper {
     private int paperKey; 
-    private int paperCode;
+    private int paperId; 
     private int examId;
     
-    public Paper(int paperKey, int paperCode, int examId) {
+    public Paper(int paperKey, int paperId, int examId) {
         this.paperKey = paperKey; 
-        this.paperCode = paperCode; 
+        this.paperId = paperId; 
         this.examId = examId;
     }
     
@@ -17,11 +17,11 @@ public class Paper {
     public void setPaperKey(int paperKey) { 
         this.paperKey = paperKey; }
     
-    public int getPaperCode() { 
-        return paperCode; }
+    public int getPaperId() { 
+        return paperId; }
     
-    public void setPaperCode(int paperCode) { 
-        this.paperCode = paperCode; }
+    public void setPaperId(int paperId) { 
+        this.paperId = paperId; }
     
     public int getExamId() { 
         return examId; }

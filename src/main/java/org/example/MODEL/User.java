@@ -15,7 +15,7 @@ public class User {
         this.role = role;
     }
 
-    public int getUserId() {
+    public int getUserId() { 
         return userId; }
     
     public String getFirstName() { 
@@ -25,12 +25,11 @@ public class User {
         return lastName; }
     
     public String getEmail() { 
-         return email;}
+        return email; }
     
-         public String getRole() { 
+    public String getRole() { 
         return role; }
-
-    public String getFullName() {
-        return firstName + " " + lastName;
-    }
+    
+    public String getFullName() { 
+        return firstName + " " + lastName; }
 }

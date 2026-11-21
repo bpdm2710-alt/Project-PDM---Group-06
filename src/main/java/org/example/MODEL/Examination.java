@@ -9,11 +9,19 @@ public class Examination {
     private int durationMin; 
     private double passMark; 
     private int maxAttempts;
+    private String status; 
 
-    public Examination(int examId, int courseId, String title, Timestamp examDate, int durationMin, double passMark, int maxAttempts) {
-        this.examId = examId; this.courseId = courseId; this.title = title;
-        this.examDate = examDate; this.durationMin = durationMin; this.passMark = passMark; this.maxAttempts = maxAttempts;
+    public Examination(int examId, int courseId, String title, Timestamp examDate, int durationMin, double passMark, int maxAttempts, String status) {
+        this.examId = examId; 
+        this.courseId = courseId; 
+        this.title = title;
+        this.examDate = examDate; 
+        this.durationMin = durationMin; 
+        this.passMark = passMark; 
+        this.maxAttempts = maxAttempts; 
+        this.status = status;
     }
+    
     public int getExamId() { 
         return examId; }
     
@@ -55,4 +63,10 @@ public class Examination {
     
     public void setMaxAttempts(int maxAttempts) { 
         this.maxAttempts = maxAttempts; }
+    
+    public String getStatus() { 
+        return status; }
+    
+    public void setStatus(String status) { 
+        this.status = status; }
 }

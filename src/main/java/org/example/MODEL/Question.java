@@ -8,12 +8,12 @@ public class Question {
     private int topicId;
     private String questionType; 
     private String content; 
-    private String difficulty; 
+    private int difficulty; 
     private boolean allowMultipleChoice; 
     private String modelAnswer;
     private List<QuestionOption> options = new ArrayList<>();
 
-    public Question(int questionId, int instructorId, int topicId, String questionType, String content, String difficulty) {
+    public Question(int questionId, int instructorId, int topicId, String questionType, String content, int difficulty) {
         this.questionId = questionId; 
         this.instructorId = instructorId; 
         this.topicId = topicId;
@@ -52,10 +52,10 @@ public class Question {
     public void setContent(String content) { 
         this.content = content; }
     
-    public String getDifficulty() { 
+    public int getDifficulty() { 
         return difficulty; }
     
-    public void setDifficulty(String difficulty) { 
+    public void setDifficulty(int difficulty) { 
         this.difficulty = difficulty; }
     
     public boolean isAllowMultipleChoice() { 
