@@ -1,333 +1,297 @@
 # UPDATE NOTES – Online Examination (Group 06)
 
-Gói `Project-PDM-Group06_UPDATE.zip` là gói **cộng dồn**: giải nén đè lên thư mục project
-(cùng cấp với `pom.xml`). Nếu có `DELETED_FILES.txt` không rỗng thì chạy `apply_deletes.bat`
-(Windows) hoặc `apply_deletes.sh` (Linux/Mac) để xóa các file đã bỏ.
-`application.properties` (chứa mật khẩu DB) KHÔNG nằm trong gói, giữ nguyên bản của bạn.
+Step-by-step history of the changes made to the project, with how each step was tested.
+For how to set up and run the project today, see [README.md](README.md).
 
-Môi trường kiểm chứng: JDK 21 + MySQL 8.0.46 trên Linux (`lower_case_table_names = 0`,
-phân biệt hoa thường giống Aiven).
+Test environment used throughout: JDK 21 + MySQL 8.0 on Linux (`lower_case_table_names = 0`, case-sensitive like Aiven).
 
----
-
-## Bước 0 – Sửa chỗ báo đỏ ở AttemptDAO
-
-**Nguyên nhân:** khi chép bản sửa Bước 1, file `AttemptDAO.java` mới (package
-`org.example.DAO.jdbc`) bị chép nhầm vào `src/main/java/org/example/DAO/AttemptDAO.java`, đè lên
-bản cũ (package `org.example.DAO`). Kết quả:
-- `duplicate class: org.example.DAO.jdbc.AttemptDAO` (2 file cùng khai báo 1 lớp);
-- `StudentResultService` không còn thấy `org.example.DAO.AttemptDAO` -> 10 lỗi `cannot find symbol`.
-
-**Sửa:** khôi phục `DAO/AttemptDAO.java` về bản cũ trong git. Bản mới chỉ nằm ở
-`DAO/jdbc/AttemptDAO.java` (giữ nguyên, đã đúng). `javac` toàn bộ `src/main/java` biên dịch sạch.
-Code cũ (`DAO/*`, `MODEL/*`) sẽ được xóa hẳn ở Bước 6.
+> Some early steps were later changed again. Where that happened it is noted in the step
+> (for example the old `DAO/` + `MODEL/` code removed in Step 6 was kept by the group, and the
+> `04_migration` script from Step 9 was removed from the project once Aiven had been migrated).
 
 ---
 
-## Bước 2 – Đồng bộ file SQL (#5) – ĐÃ KIỂM CHỨNG trên MySQL 8.0 Linux
+## Step 0 – Fix the red errors in AttemptDAO
 
-| File | Thay đổi | Kết quả chạy |
+**Cause:** while copying the Step 1 fix, the new `AttemptDAO.java` (package `org.example.DAO.jdbc`) was copied by
+mistake into `src/main/java/org/example/DAO/AttemptDAO.java`, overwriting the old file (package `org.example.DAO`). Result:
+- `duplicate class: org.example.DAO.jdbc.AttemptDAO` (two files declaring the same class);
+- `StudentResultService` could no longer see `org.example.DAO.AttemptDAO` → 10 `cannot find symbol` errors.
+
+**Fix:** restored `DAO/AttemptDAO.java` to its previous version from git. The new version lives only in
+`DAO/jdbc/AttemptDAO.java` (unchanged, already correct). `javac` compiles all of `src/main/java` cleanly.
+
+---
+
+## Step 2 – Align the SQL files (#5) – VERIFIED on MySQL 8.0 Linux
+
+| File | Change | Result |
 |---|---|---|
-| `normalized_21tables/02_...full_submission.sql` | Không đổi (là "nguồn chuẩn") | Chạy sạch: 21 bảng, 4 view, 35 user seed |
-| `normalized_21tables/01_schema_ddl_for_mwb_import.sql` | **Sinh lại từ phần DDL của 02** (bảng + index). Nay có `Status`, `Exam_date` NULL, AUTO_INCREMENT, tên bảng VIẾT HOA | Chạy sạch, `EXAMINATION` đúng cột |
-| `normalized_21tables/03_verify_..._N01_N24.sql` | Viết hoa 123 tên bảng trong backtick | Chạy sau 02: **PASSED=39, FAILED=0** (trước đó 7 lỗi `Table ... doesn't exist`) |
-| `normalized_21tables/04_migration_...sql` | Viết hoa tên bảng (kể cả `CONTAINS` của DB cũ); chép thêm cột `Status`; **quy đổi Pass_mark điểm thô -> %** theo tổng điểm paper nhỏ nhất (tối đa 100) | Thử với DB cũ 20 bảng + seed `student_results`: mọi audit = 0, lossless check = 0; 10/20 điểm -> 50.00% |
-| `database/queries/PDMProjectQuery.sql` (MỚI) | Bản viết hoa tên bảng của file query, thêm `USE Online_Examination` | Toàn bộ query chạy không lỗi |
+| `normalized_21tables/02_...full_submission.sql` | Unchanged (the reference file) | Runs cleanly: 21 tables, 4 views, 35 seed users |
+| `normalized_21tables/01_schema_ddl_for_mwb_import.sql` | **Regenerated from the DDL part of 02** (tables + indexes): now has `Status`, nullable `Exam_date`, UPPERCASE table names | Runs cleanly, `EXAMINATION` has the right columns |
+| `normalized_21tables/03_verify_..._N01_N24.sql` | 123 table names in backticks made UPPERCASE | After 02: **PASSED=39, FAILED=0** (previously 7 `Table ... doesn't exist` errors) |
+| `database/queries/PDMProjectQuery.sql` (NEW) | The query file with UPPERCASE table names and `USE Online_Examination` | Every query runs without errors |
 
-Ghi chú: khi sửa schema sau này, chỉ sửa 02 rồi sinh lại 01 (01 = dòng 1 tới trước phần
-"DERIVED VIEWS" của 02).
+Note: when the schema changes later, edit only 02 and regenerate 01 (01 = from line 1 up to the "DERIVED VIEWS" part of 02).
 
 ---
 
-## Bước 3 – Hash mật khẩu thật (#2) + seed demo ngày tương đối (#3) – ĐÃ KIỂM CHỨNG
+## Step 3 – Real password hashing (#2) + demo seed with relative dates (#3) – VERIFIED
 
-### Mật khẩu
-- MỚI `src/main/java/org/example/util/PasswordHasher.java`: PBKDF2-HMAC-SHA256, 120 000 vòng,
-  salt 16 byte, có sẵn trong JDK (không thêm thư viện). Định dạng lưu:
-  `pbkdf2_sha256$120000$<salt>$<hash>`. Sinh hash bằng dòng lệnh:
-  `java -cp target/classes org.example.util.PasswordHasher "MatKhau"`.
-- `AuthServiceImpl.passwordMatches`: hash PBKDF2 -> verify; giá trị cũ chưa hash -> so chuỗi thô
-  MỘT lần rồi **tự thay bằng hash** ngay sau khi đăng nhập đúng (`upgradeHashIfNeeded`).
-- `UserDAO.updatePasswordHash(...)` (mới).
-- `02_...full_submission.sql`: 35 tài khoản seed nay là hash thật.
-  **Mật khẩu demo: giảng viên (ID 1-15) `Inst@123`, sinh viên (ID 101-120) `Stu@123`.**
-- MỚI `normalized_21tables/05_upgrade_password_hashes.sql`: cho DB Aiven đã dựng bằng seed cũ
-  (`sha256:...`). Chỉ cập nhật dòng còn giá trị cũ, chạy lại không sao.
-- `DatabaseConnection`: chỉ đặt truststore khi có cấu hình (trước đây thiếu key -> NullPointerException;
-  nay chạy được cả MySQL cục bộ không SSL).
+### Passwords
+- NEW `src/main/java/org/example/util/PasswordHasher.java`: PBKDF2-HMAC-SHA256, 120,000 iterations, 16-byte salt,
+  part of the JDK (no extra library). Stored format: `pbkdf2_sha256$120000$<salt>$<hash>`.
+  Generate a hash from the command line: `java -cp target/classes org.example.util.PasswordHasher "Password"`.
+- `AuthServiceImpl.passwordMatches`: PBKDF2 hash → verify; an old unhashed value → plain comparison ONCE, then it is
+  **replaced by a hash** right after a successful sign-in (`upgradeHashIfNeeded`).
+- `UserDAO.updatePasswordHash(...)` (new).
+- **Demo passwords: instructors (ID 1-15) `Inst@123`, students (ID 101-120) `Stu@123`.**
+- NEW `normalized_21tables/05_upgrade_password_hashes.sql`: for a database built with the old seed (`sha256:...`).
+  Only updates rows that still hold an old value; safe to re-run.
+- `DatabaseConnection`: only sets the truststore when one is configured (a missing key used to cause a
+  NullPointerException; a local MySQL without SSL now works too).
 
-### Seed demo
-- MỚI `database/demo/03_demo_seed.sql` (chạy sau 02, chạy lại bao nhiêu lần cũng được; dùng
-  `SET time_zone = '+07:00'` vì Aiven mặc định UTC còn app so với giờ máy người dùng):
-  - `DEMO - Open now`: mở 5 phút trước, 180 phút, 2 lượt; sv101–sv103 đã đăng ký -> bấm Start.
-  - `DEMO - Upcoming`: mở sau 2 ngày, chưa ai đăng ký -> thử Register.
-  - `DEMO - Expired attempt`: sv101 có lượt quá giờ chưa nộp -> app phải tự đóng + chấm (kiểm Bước 1).
-  - `DEMO - Draft`: bản nháp cho giảng viên sửa/tạo paper/publish.
+### Demo seed
+- NEW `database/demo/03_demo_seed.sql` (run after 02, re-runnable; uses `SET time_zone = '+07:00'` because Aiven
+  defaults to UTC):
+  - `DEMO - Open now`: opened 5 minutes ago, 180 minutes, 2 attempts; sv101–sv103 registered → press Start.
+  - `DEMO - Upcoming`: opens in 2 days, nobody registered → try Register.
+  - `DEMO - Expired attempt`: sv101 has an unsubmitted attempt past its time limit → the app must close and grade it.
+  - `DEMO - Draft`: a draft for the instructor to edit, build a paper for and publish.
 
-### Kết quả kiểm thử (gọi thẳng Service, MySQL 8 Linux)
-- Đăng nhập: 6/6 PASS (đúng/sai mật khẩu, không phân biệt hoa thường email, nâng cấp hash cũ).
-- Luồng sinh viên: 11/11 PASS – lượt quá giờ tự đóng & chấm 10/40; Start -> lưu 5 đáp án ->
-  vào lại giữ nguyên đáp án -> Submit 60/60 (100%, passed); Register exam sắp tới; Start trước giờ
-  bị chặn "This exam is not open yet."; Overview OK.
-- 03_verify sau khi đổi seed: vẫn PASSED=39/39.
+### Test results (calling the services directly, MySQL 8 Linux)
+- Sign-in: 6/6 PASS (right/wrong password, case-insensitive email, old hash upgraded).
+- Student flow: 11/11 PASS – expired attempt closed and graded 10/40; Start → save 5 answers → re-enter keeps the
+  answers → Submit 60/60 (100%, passed); register for an upcoming exam; starting early is blocked with
+  "This exam is not open yet."; Overview OK.
+- 03_verify after the seed change: still PASSED=39/39.
 
 ---
 
-## Bước 4 – Chốt `sp_*` và cách chấm Short answer (#6) – ĐÃ KIỂM CHỨNG
+## Step 4 – Decide on `sp_*` and short-answer grading (#6) – VERIFIED
 
-**Quyết định (ghi vào báo cáo):**
-1. App **không gọi** `sp_start_attempt / sp_submit_mcq_answer / sp_finalize_attempt`. Lý do: các
-   procedure tự `START TRANSACTION ... COMMIT`, không lồng được trong `Db.tx` (transaction + khóa
-   dòng của Java). Logic nằm ở Java (`StudentServiceImpl`), trigger trong DB vẫn là lớp chặn cuối.
-   Các procedure vẫn giữ trong schema làm API mức DB và được `03_verify` kiểm (39/39).
-2. **Luật chấm Short answer thống nhất với `sp_finalize_attempt` (BR-42):**
-   bỏ trống -> 0; khớp `Answer_key` (bỏ khoảng trắng 2 đầu, không phân biệt hoa thường) -> đủ điểm;
-   **khác đáp án -> `MarkAwarded = NULL` chờ giảng viên chấm tay** (trước đây cho 0 luôn nên chấm tay
-   không bao giờ xảy ra). MCQ vẫn chấm tự động khi nộp.
+**Decisions (for the report):**
+1. The app **does not call** `sp_start_attempt / sp_submit_mcq_answer / sp_finalize_attempt`. Reason: the procedures
+   run their own `START TRANSACTION ... COMMIT`, which cannot be nested inside `Db.tx` (the Java transaction and row
+   locks). The logic is in Java (`StudentServiceImpl`); the database triggers remain the last line of defence.
+   The procedures stay in the schema as a database-level API and are tested by `03_verify` (39/39).
+2. **Short-answer grading follows `sp_finalize_attempt` (BR-42):** blank → 0; matches `Answer_key` (trimmed,
+   case-insensitive) → full marks; **different from the key → `MarkAwarded = NULL`, waiting for the instructor**
+   (previously it got 0 immediately, so manual grading never happened). MCQs are still graded on submit.
 
 **Code:**
-- `StudentServiceImpl`: `gradeAndClose` dùng hàm mới `autoMark(...)` (null = chờ chấm).
-- MỚI `DAO/jdbc/GradingDAO.java`: `pendingForCourse`, `countPendingForCourse`, `findForUpdate`
-  (khóa dòng ANSWER), `setMark`.
+- `StudentServiceImpl`: `gradeAndClose` uses the new `autoMark(...)` (null = waiting for grading).
+- NEW `DAO/jdbc/GradingDAO.java`: `pendingForCourse`, `countPendingForCourse`, `findForUpdate` (locks the ANSWER row), `setMark`.
 - `InstructorService` (+ Impl): `listPendingGrading(courseId)`, `gradeAnswer(AnswerRef, mark)`.
-  Kiểm tra: giảng viên phải dạy course đó; chỉ Short answer; bài đã nộp; 0 <= mark <= Marks,
-  tối đa 2 chữ số thập phân. Có thể sửa điểm bằng cách chấm lại.
-- MỚI `ui/panel/GradingTab.java` + tab **"Grading"** trong trang course của giảng viên: bảng bài
-  chờ chấm, xem câu hỏi / câu trả lời / đáp án tham khảo, nút "Full marks", "0", "Save mark".
-  Màn Results của sinh viên hiện "GRADING" cho tới khi mọi câu có điểm.
+  Checks: the instructor teaches the course; short answers only; submitted attempts only; 0 <= mark <= Marks,
+  at most 2 decimal places. A mark can be changed by grading again.
+- NEW `ui/panel/GradingTab.java` + a **"Grading"** tab on the instructor's course page: table of answers waiting for
+  grading, view question / answer / reference key, buttons "Full marks", "0", "Save mark".
+  The student's Results screen shows "GRADING" until every question has a mark.
 
-**Kiểm thử:** chấm tay 8/8 PASS (bài chờ chấm xuất hiện, chặn điểm > max, chặn 3 chữ số thập phân,
-chặn chấm tay MCQ, sau khi chấm kết quả sinh viên thành fully graded 15/60, giảng viên khác course
-bị chặn UNAUTHORIZED). Chạy lại luồng sinh viên 11/11 và đăng nhập 6/6 PASS.
+**Tests:** manual grading 8/8 PASS (pending answers listed, mark above max blocked, 3 decimal places blocked,
+manual grading of an MCQ blocked, after grading the student's result is fully graded 15/60, an instructor of another
+course is blocked with UNAUTHORIZED). Student flow 11/11 and sign-in 6/6 re-run: PASS.
 
 ---
 
-## Bước 5 – Thiết kế ReportDAO theo `.sql`, nối vào Service/UI (#7) – ĐÃ KIỂM CHỨNG
+## Step 5 – ReportDAO designed from the `.sql` file, wired into Service/UI (#7) – VERIFIED
 
-**Sửa query (cả `database/queries/PDMProjectQuery.sql` và `ReportDAO`, giữ giống hệt nhau):**
-| Query | Sửa |
+**Query fixes (in both `database/queries/PDMProjectQuery.sql` and `ReportDAO`, kept identical):**
+| Query | Fix |
 |---|---|
-| Q1 lỗi > 70% | chỉ tính lượt đã nộp (`EndTime IS NOT NULL`) |
-| Q4 điểm từng lượt | chỉ lượt đã nộp **và chấm xong** (IN `v_attempt_scores.IsFullyGraded = 1`) -> không còn điểm "một phần"; GROUP BY thêm `RegisID` |
-| Q5 set operation | dùng `EXCEPT` như file query. Vì mỗi câu hỏi chỉ thuộc **1 topic**, "topic A EXCEPT topic B" luôn = topic A (và 2 topic trong file cũ không tồn tại nên luôn rỗng) -> đổi thành **"câu có trong exam A nhưng không có trong exam B"**. Cần MySQL 8.0.31+ |
-| Q10 phép chia | chỉ exam `PUBLISHED` và lượt đã nộp |
-| Q11 + view `vw_AverageScoreByTopic` | chỉ lượt đã nộp; thêm cột `Average_Percent` (% so với điểm câu) – view cũng đã sửa trong 02 |
+| Q1 errors > 70% | counts submitted attempts only (`EndTime IS NOT NULL`) |
+| Q4 score per attempt | only attempts that are submitted **and fully graded** (IN `v_attempt_scores.IsFullyGraded = 1`) → no more "partial" scores; `RegisID` added to GROUP BY |
+| Q5 set operation | uses `EXCEPT` as in the query file. Because each question belongs to **one topic**, "topic A EXCEPT topic B" always equals topic A (and the two topics in the old file did not exist, so it was always empty) → changed to **"questions in exam A but not in exam B"**. Needs MySQL 8.0.31+ |
+| Q10 division | `PUBLISHED` exams and submitted attempts only |
+| Q11 average by topic | submitted attempts only; adds an `Average_Percent` column (% of the question's marks) |
 
 **Code:**
-- `DAO/jdbc/ReportDAO.java` (viết lại): mỗi query là 1 hằng SQL `Q1_...`–`Q11_...` + 1 method typed
-  (record) + hàm chung `table(conn, sql, params)` trả cột/dòng để hiển thị.
-- `InstructorService.runReport(ReportKind, ReportParams)` (+ enum `ReportKind` có tiêu đề/mô tả,
-  `ReportParams`, `ReportTable`). Chỉ giảng viên dạy course mới chạy được.
-- MỚI `ui/panel/ReportsTab.java` + tab **"Reports"** trong trang course giảng viên: chọn query,
-  nhập ngưỡng N (Q1/Q6/Q8) hoặc chọn exam A/B (Q5), bấm Run, kết quả hiện dạng bảng (sắp xếp được).
-- `StatsDAO` (tab Statistics): chỉ tính lượt **đã chấm xong**, tránh điểm thấp giả khi còn câu chờ chấm tay.
+- `DAO/jdbc/ReportDAO.java` (rewritten): each query is one SQL constant `Q1_...`–`Q11_...` + one typed method
+  (record) + a shared `table(conn, sql, params)` returning columns/rows for display.
+- `InstructorService.runReport(ReportKind, ReportParams)` (+ enum `ReportKind` with title/description,
+  `ReportParams`, `ReportTable`). Only an instructor of the course can run it.
+- NEW `ui/panel/ReportsTab.java` + a **"Reports"** tab on the instructor's course page: choose a query, enter the
+  threshold N (Q1/Q6/Q8) or pick exams A/B (Q5), click Run; the result is shown as a sortable table.
+- `StatsDAO` (Statistics tab): counts **fully graded** attempts only, avoiding falsely low scores while answers wait for grading.
 
-**Kiểm thử:** 11/11 report qua Service trả đúng số dòng như chạy trực tiếp file `.sql`
-(Q1=2, Q2=49, Q3=6, Q4=34, Q5=2, Q6=14, Q7=14, Q8=11, Q9=15, Q10=3, Q11=17); method typed khớp;
-chặn thiếu exam, chặn giảng viên không dạy course; dựng được GradingTab/ReportsTab (headless).
-Chạy lại: luồng sinh viên 11/11, chấm tay 8/8, đăng nhập 6/6, 03_verify 39/39.
-
----
-
-## Bước 6 – Dọn code cũ, script cũ, tài liệu (#12–#15)
-
-- **Xóa code chết** (đã grep: ngoài nhau ra không file nào dùng): `DAO/*.java` (12 file, gồm cả
-  `DAO/AttemptDAO.java` cũ gây báo đỏ), `MODEL/*` (11 file), `Service/StudentResultService.java`,
-  `src/test/.../StudentResultsTestRunner.java`. Project vẫn biên dịch sạch.
-- **Script SQL 20 bảng** chuyển vào `database/legacy_20tables/` (có README cảnh báo; file schema
-  cũ có dòng đầu "DO NOT RUN ON AIVEN" vì chứa `DROP DATABASE`).
-- **Tài liệu cũ** (`PROGRESS_REPORT.md`, `CHANGELOG_PATCHES.md`, `CHANGES_STEP1.md`,
-  `docs/ui/PROGRESS.md`) chuyển vào `docs/legacy/`, đầu mỗi file có ghi chú "LỖI THỜI".
-  `README.md` bổ sung thứ tự chạy SQL, tài khoản demo, build/test.
-- MỚI `.gitattributes` (LF cho java/sql/md/xml, CRLF cho .bat) -> hết cảnh ~40 file "modified" do CRLF/LF.
-  Sau khi chép, chạy 1 lần: `git add --renormalize .` rồi commit.
-
-## Bước 7 – pom.xml, JUnit, chạy thử toàn luồng (#4, #17, #18)
-
-- `pom.xml`: resource `src/main/Sources` (đúng hoa/thường, chạy được trên Linux/Mac),
-  `maven.compiler.release = 21` (thay 26), JUnit 5.10.2, surefire, **maven-shade** ->
-  `mvn package` tạo `target/Online_Examination_System-1.0-SNAPSHOT-all.jar` chạy bằng `java -jar`.
-- Test (`src/test/java`):
-  - `util/PasswordHasherTest`, `Service/GradingRulesTest` – unit test, không cần DB: **8/8 PASS**.
-  - `it/EndToEndTest` – toàn luồng (login -> lượt quá giờ tự đóng -> làm bài/lưu/vào lại/nộp ->
-    đăng ký -> short answer chờ chấm -> giảng viên chấm -> 11 report + statistics): **6/6 PASS**,
-    chạy lại lần 2 sau khi seed lại demo vẫn PASS. Chỉ chạy khi `-Dit.db=local` VÀ `db.url` là
-    localhost (tự từ chối nếu trỏ ra ngoài, để không ghi dữ liệu lên Aiven).
-  - Cách chạy E2E: dựng MySQL cục bộ bằng 02 + `demo/03_demo_seed.sql`; chép
-    `src/test/resources/application.properties.example` thành `application.properties`; `mvn test -Dit.db=local`.
-- Lưu ý: sandbox không tải được Maven Central nên các test được chạy bằng javac + JUnit console
-  (cùng phiên bản JUnit 5); hãy chạy `mvn clean package` một lần trên máy nhóm để xác nhận plugin.
+**Tests:** all 11 reports through the service return the same row counts as running the `.sql` file directly
+(Q1=2, Q2=49, Q3=6, Q4=34, Q5=2, Q6=14, Q7=14, Q8=11, Q9=15, Q10=3, Q11=17); typed methods match;
+missing exam and non-teaching instructor are blocked; GradingTab/ReportsTab build (headless).
+Re-run: student flow 11/11, manual grading 8/8, sign-in 6/6, 03_verify 39/39.
 
 ---
 
-## Sau khi giải nén gói này
-1. Chạy `apply_deletes.bat` (Windows) / `apply_deletes.sh` để xóa các file trong `DELETED_FILES.txt`
-   (code cũ + file đã chuyển chỗ). Có thể xóa tay các thư mục rỗng còn lại
-   (`src/main/java/org/example/MODEL`, `database/schema`, `database/migrations`, `database/student_results`).
-2. Xóa thư mục `target/` (hoặc `mvn clean`): trong đó còn class cũ và **bản copy `application.properties`
-   có mật khẩu thật**.
-3. Trong IntelliJ: Maven -> Reload project (pom đổi Java 21 + thêm JUnit/shade).
-4. DB trên Aiven: chạy `normalized_21tables/05_upgrade_password_hashes.sql` (nếu còn seed cũ) và cập nhật
-   view: chạy đoạn `CREATE OR REPLACE VIEW vw_AverageScoreByTopic` ở cuối `database/queries/PDMProjectQuery.sql`.
-   Muốn demo: chạy `database/demo/03_demo_seed.sql`.
+## Step 6 – Clean up old code, old scripts, documentation (#12–#15)
 
-## Còn lại (theo báo cáo PDF)
-- ~~#8 giờ thi theo đồng hồ máy client~~ -> **đã làm ở Bước 11** (đồng hồ DB).
-- ~~#9 nhiều paper~~ -> **đã làm ở Bước 11** (xoay vòng paper). Điểm theo exam (EXAM_QUESTION_MARKS) là thiết kế của schema 21 bảng.
-- #10 kiểm tra quyền trong service bỏ qua khi không có Session (chấp nhận cho test).
-- ~~#11 REQUIRES chưa áp dụng khi đăng ký thi~~ -> **đã làm ở Bước 11**. Còn: `MAX(Semester)` so chuỗi; `deleteQuestion` chưa kiểm tra `attemptedCount`.
-- ~~#16 connection pool~~ -> **đã làm ở Bước 11** (HikariCP). Mật khẩu Aiven nhóm đã đổi.
+- Old documents (`PROGRESS_REPORT.md`, `CHANGELOG_PATCHES.md`, `CHANGES_STEP1.md`, `docs/ui/PROGRESS.md`) moved to
+  `docs/legacy/`, each marked as outdated. `README.md` gained the SQL run order, demo accounts, build/test.
+- NEW `.gitattributes` (LF for java/sql/md/xml, CRLF for .bat) → removes ~40 files showing as "modified" only because of CRLF/LF.
+  After copying, run once: `git add --renormalize .` and commit.
+- *Later changed:* the old `DAO/*`, `MODEL/*`, `StudentResultService` and `StudentResultsTestRunner` were first removed
+  here, but the group kept them; Step 10 updated them for the 21-table schema instead.
+
+## Step 7 – pom.xml, JUnit, full-flow test (#4, #17, #18)
+
+- `pom.xml`: resource folder `src/main/Sources` (correct case, works on Linux/Mac), `maven.compiler.release = 21`
+  (instead of 26), JUnit 5.10.2, surefire, **maven-shade** → `mvn package` builds
+  `target/Online_Examination_System-1.0-SNAPSHOT-all.jar`, runnable with `java -jar`.
+- Tests (`src/test/java`):
+  - `util/PasswordHasherTest`, `Service/GradingRulesTest` – unit tests, no database needed.
+  - `it/EndToEndTest` – full flow (sign-in → expired attempt closed → take/save/re-enter/submit → register →
+    short answer waiting → instructor grades → 11 reports + statistics): **6/6 PASS**, also on a second run after
+    re-seeding the demo. Runs only with `-Dit.db=local` AND a `db.url` on localhost (refuses anything else, so it never
+    writes to Aiven).
+  - How to run E2E: build a local MySQL with 02 + `demo/03_demo_seed.sql`; copy
+    `src/test/resources/application.properties.example` to `application.properties`; `mvn test -Dit.db=local`.
+- Note: the development sandbox could not reach Maven Central, so tests were run with javac + the JUnit console
+  (same JUnit 5 version); run `mvn clean package` once on a group computer to confirm the plugins.
 
 ---
 
-## Bước 8 – Sửa theo file 02 của nhóm (bản bạn gửi) + hết báo đỏ AttemptDAO
+## Step 8 – Follow the group's 02 file + no more red errors in AttemptDAO
 
-**02 chuẩn = file bạn gửi** (đã chép đè `normalized_21tables/02_...sql`, `01` sinh lại từ nó).
-Khác với bản trước: KHÔNG có AUTO_INCREMENT (trừ `PAPER.PaperKey`), KHÔNG có view
-`vw_AverageScoreByTopic`, mật khẩu seed là `sha256:...`. Tên bảng VIẾT HOA – code đã khớp
-(đã quét mọi chuỗi SQL trong Java: mọi bảng sau FROM/JOIN/INTO/UPDATE đều có trong 02, mọi cột `x.Cot` đều tồn tại).
+**The reference 02 is the group's file** (copied over `normalized_21tables/02_...sql`, `01` regenerated from it).
+Differences from the earlier version: NO AUTO_INCREMENT (except `PAPER.PaperKey`), NO view `vw_AverageScoreByTopic`,
+seed passwords are `sha256:...`. Table names are UPPERCASE – the code matches (every SQL string in Java was scanned:
+every table after FROM/JOIN/INTO/UPDATE exists in 02, every `x.Column` exists).
 
-**Hết đỏ ở AttemptDAO:**
-- `FOR UPDATE OF r` / `FOR UPDATE OF a` (cú pháp riêng MySQL 8, IntelliJ gạch đỏ) -> khóa đúng 1 dòng bằng
-  câu chuẩn `SELECT RegisID FROM REGISTRATION WHERE RegisID = ? FOR UPDATE` rồi mới đọc join. Tương tự `GradingDAO`.
-- `ON DUPLICATE KEY UPDATE x = VALUES(x)` (deprecated từ MySQL 8.0.20) -> `x = ?` (AttemptDAO, PaperDAO).
-- Nếu IntelliJ báo **"duplicate class: org.example.DAO.jdbc.AttemptDAO"**: là do file `DAO/AttemptDAO.java`
-  cũ còn trên máy (chưa chạy `apply_deletes`). Gói này **ghi đè các file đã xóa bằng file rỗng (chỉ có comment)**,
-  nên dù chưa chạy `apply_deletes` cũng hết đỏ; chạy `apply_deletes.bat` để xóa hẳn.
+**No more red in AttemptDAO:**
+- `FOR UPDATE OF r` / `FOR UPDATE OF a` (MySQL 8 syntax that IntelliJ underlines) → lock exactly one row with the
+  standard `SELECT RegisID FROM REGISTRATION WHERE RegisID = ? FOR UPDATE`, then read the join. Same in `GradingDAO`.
+- `ON DUPLICATE KEY UPDATE x = VALUES(x)` (deprecated since MySQL 8.0.20) → `x = ?` (AttemptDAO, PaperDAO).
 
-**Sửa cho schema không có AUTO_INCREMENT** (trước đây tạo exam / câu hỏi / đăng ký thi lỗi
+**Fixes for a schema without AUTO_INCREMENT** (creating an exam / question / registration used to fail with
 `Field 'Exam_ID' doesn't have a default value`):
-- MỚI `Jdbc.nextId(table, column)` = `SELECT COALESCE(MAX(id),0)+1 ... FOR UPDATE` (trong transaction).
-- `ExamDAO.insert`, `QuestionDAO.insert`, `StudentDAO.register` truyền ID tự sinh (vẫn chạy được nếu sau này có AUTO_INCREMENT).
+- NEW `Jdbc.nextId(table, column)` = `SELECT COALESCE(MAX(id),0)+1 ... FOR UPDATE` (inside the transaction).
+- `ExamDAO.insert`, `QuestionDAO.insert`, `StudentDAO.register` pass the generated ID (still works if AUTO_INCREMENT is added later).
 - `demo/03_demo_seed.sql`: Exam_ID / RegisID = MAX + 1.
 
-**Không phụ thuộc view thiếu:** `ReportDAO` Q11 viết thẳng trên bảng; `PDMProjectQuery.sql` Q12 tự tạo view.
+**No dependency on the missing view:** `ReportDAO` Q11 is written directly on the tables; `PDMProjectQuery.sql` Q12 creates its own view.
 
-**Thứ tự chạy SQL trên Aiven:** 02 -> `05_upgrade_password_hashes.sql` -> (demo) `demo/03_demo_seed.sql`.
+**SQL run order on Aiven:** 02 → `05_upgrade_password_hashes.sql` → (demo) `demo/03_demo_seed.sql`.
 
-**Kiểm thử trên đúng file 02 của bạn (MySQL 8 Linux):** 03_verify 39/39; tạo exam/câu hỏi/paper/publish/đăng ký 7/7;
-luồng sinh viên 11/11; chấm tay 8/8; đăng nhập 6/6; Reports 11/11 khớp file .sql; JUnit 14/14; migration 04 sạch.
-
----
-
-## Bước 9 – Đồng bộ 03/04 theo 02 của nhóm, 04 chuyển tại chỗ
-
-- `03_verify_...sql`: tên bảng VIẾT HOA (123 chỗ). Chạy ngay sau 02 của nhóm: **PASSED=39 | FAILED=0**.
-- `04_migration_...sql` **viết lại, không còn dùng database `online_examination_old`**. Chạy thẳng trên
-  `Online_Examination` đang là schema 20 bảng (như Aiven hiện tại):
-  0. kiểm tra đúng là schema cũ (nếu không -> dừng, không đổi gì); đổi tên 20 bảng cũ thành `OLD_*`
-     và gỡ khóa ngoại/CHECK cũ (tên khóa cũ trùng tên khóa mới, MySQL bắt tên khóa duy nhất trong DB);
-  1. tạo 21 bảng mới (DDL y hệt 02);
-  2. chép + chuyển dữ liệu trong 1 transaction, có kiểm tra trước/sau (lỗi -> ROLLBACK, bảng `OLD_*` còn nguyên);
-     `Password_hash_` -> `Password_hash`, `CONTAINS` -> `EXAM_QUESTION_MARKS` + `PAPER_QUESTION`,
-     `ATTEMPT.PaperID+Exam_ID` -> `PaperKey`, giữ `Status`, `Pass_mark` điểm thô -> %;
-  3. tạo view / trigger / procedure (y hệt 02);
-  4. tự xóa 20 bảng `OLD_*` -> **còn đúng 21 bảng** (in ra `TABLE_COUNT 21 OK`). Bước này chỉ chạy khi
-     mọi bước trên thành công (script dừng ở lỗi đầu tiên).
-  Kiểm chứng: DB cũ có dữ liệu (20 bảng) -> chạy 04 -> **21 bảng**, cấu trúc **giống hệt** DB dựng từ 02
-  (so 312 mục: cột, khóa, ràng buộc, index, trigger, procedure, view), dữ liệu đủ; chạy lại lần 2 bị từ chối
-  an toàn; dữ liệu cũ lỗi (Marks khác nhau giữa 2 paper) -> dừng ở bước kiểm tra, `OLD_*` còn nguyên, không xóa gì.
-  **Nhớ backup trước khi chạy trên Aiven.** File được sinh bằng `tools`-script từ 02 + 04 cũ.
+**Tests on the group's own 02 (MySQL 8 Linux):** 03_verify 39/39; create exam/question/paper/publish/register 7/7;
+student flow 11/11; manual grading 8/8; sign-in 6/6; Reports 11/11 matching the .sql file; JUnit 14/14.
 
 ---
 
-## Bước 10 – Rà project ngày 21/11 (zip nhóm gửi) và cập nhật phần còn cũ
+## Step 9 – Align 03/04 with the group's 02, in-place migration
 
-**Nguyên nhân sinh viên `sv102` đăng nhập báo sai mật khẩu:** gói update trước bị giải nén vào thư mục lồng
-`Project-PDM---Group-06_cub`, nên code chính vẫn là bản gốc – trong đó `AuthServiceImpl` cũ so mật khẩu dạng chuỗi
-thô, không đọc được hash PBKDF2 (sau khi chạy 05). Gói này chép đè đúng chỗ.
-
-**Còn cũ và đã thay** (giống hệt bản gốc, chưa nhận update): `AuthServiceImpl`, `StudentServiceImpl`,
-`InstructorService(+Impl)`, `DatabaseConnection`, `DAO/jdbc/*` (Attempt, Exam, Jdbc, Paper, Question, Stats, Student,
-User), `InstructorCoursesPage`, `pom.xml`, `.gitignore`, README/tài liệu, `01`/`02` SQL (02 = bản của nhóm).
-`DAO/jdbc/ReportDAO` bản chỉ sửa view -> bản đầy đủ (InstructorServiceImpl mới cần các hằng Q1..Q11).
-**Thêm mới:** `GradingDAO`, `GradingTab`, `ReportsTab`, test JUnit, `demo/03_demo_seed.sql`, `05_upgrade_password_hashes.sql`,
-`queries/PDMProjectQuery.sql`, `04` (chuyển tại chỗ), `.gitattributes`.
-**Giữ nguyên bản của nhóm:** `ExamCardView` (đã sửa comment), `03_verify` (cùng nội dung, khác thụt lề),
-các DAO cũ đã dán bản sửa (`DAO/AnswerDAO`, `AttemptDAO`, `PaperDAO`, `QuestionOptionDAO`, `UserDAO`).
-
-**Code cũ `org.example.DAO` + `MODEL` + `StudentResultService` (nhóm giữ lại) – sửa nốt cho 21 bảng:**
-- `CourseDAO`, `TopicDAO`, `ExaminationDAO`: đúng tên cột (trước đọc `course_id`/`name`/`duration_min` không tồn tại).
-- `QuestionDAO.SELECT_BASE`: `QUESTION/MCQ/SHORT_ANSWER` viết hoa, cột alias đúng tên `mapRow` đọc.
-- `ScoreDAO`: `CONTAINS` -> `PAPER_QUESTION` + `EXAM_QUESTION_MARKS`; "đã nộp" = `EndTime IS NOT NULL`.
-- `MODEL/Attempt.isSubmitted()`: `EndTime != null`. `MODEL/Score`: đậu khi **%** >= `Pass_mark` (Pass_mark là %).
-- `StudentResultService`: bắt đầu lượt với `EndTime NULL`; MCQ lưu `AnswerText NULL` + `SELECT_TABLE`; chưa chấm = `NULL`.
-- `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql`: chuyển sang 21 bảng.
-- `StudentResultsTestRunner`: kỳ vọng theo quy ước 21 bảng, xóa lượt seed sẵn của RegisID 9001 trước kịch bản.
-
-**Kiểm thử trên chính project đã ghép (DB = 02 của nhóm, MySQL 8 Linux):** biên dịch sạch toàn bộ main + test;
-`StudentResultsTestRunner` 56/56; đăng nhập 6/6; luồng sinh viên 11/11; chấm tay 8/8; tạo exam/câu hỏi/paper 7/7;
-Reports 11/11 khớp file .sql; JUnit 14/14; DAO cũ đọc đúng dữ liệu (15 course, 18 topic, 19 exam, ...).
+- `03_verify_...sql`: UPPERCASE table names (123 places). Right after the group's 02: **PASSED=39 | FAILED=0**.
+- `04_migration_...sql` rewritten to migrate the old 20-table `Online_Examination` in place (old tables renamed to
+  `OLD_*`, 21 new tables created, data copied in one checked transaction, `OLD_*` removed only when everything succeeded).
+  Verified: an old database with data → 21 tables, structure **identical** to a database built from 02.
+- *Later changed:* once Aiven had been migrated, the group removed `04_migration` from the project.
 
 ---
 
-## Bước 11 – Đồng hồ DB, xoay vòng paper, môn tiên quyết, connection pool
+## Step 10 – Review of the group's project zip (21/11) and update of what was still old
 
-**#8 – Giờ thi theo đồng hồ DATABASE, không theo máy người dùng.**
-- MỚI `Db.now(conn)` = `SELECT NOW()`; mọi chỗ trước đây dùng `LocalDateTime.now()` trong `StudentServiceImpl` /
-  `InstructorServiceImpl` (mở/đóng exam, đăng ký, bắt đầu, lưu, nộp, tự đóng bài quá giờ, trạng thái exam) dùng giờ DB.
-- Mỗi kết nối chạy `SET time_zone = '+07:00'` (khóa `db.timezone`, mặc định +07:00) -> `NOW()` cùng múi giờ với
-  `Exam_date` / `StartTime` dù server Aiven chạy UTC. Đồng hồ đếm ngược khi làm bài vốn tính theo số giây server trả về.
-- Kiểm chứng: server UTC + máy chạy app để múi giờ New York -> **code cũ**: sinh viên thấy `DEMO - Open now` là
-  UPCOMING, "This exam is not open yet"; **code mới**: toàn bộ kịch bản demo PASS.
+**Why `sv102` got "wrong password":** the previous update package had been extracted into a nested folder
+`Project-PDM---Group-06_cub`, so the main code was still the original – whose old `AuthServiceImpl` compared passwords
+as plain strings and could not read the PBKDF2 hashes (after running 05). This package copies over the right place.
 
-**#9 – Nhiều paper trong một exam.** `AttemptDAO.pickPaperKey` (thay `firstPaperKey`): chỉ chọn paper có câu hỏi;
-ưu tiên paper sinh viên đó dùng ít nhất (thi lại -> đề khác); hòa thì xoay vòng theo số lượt của cả exam (người sau
-nhận đề khác người trước). Điểm từng câu vẫn theo exam (`EXAM_QUESTION_MARKS`) – đúng thiết kế chuẩn hóa: cùng một
-câu trong exam có cùng điểm ở mọi paper. Kiểm chứng: 3 sinh viên -> paper 1, 2, 1; thi lại -> paper 2; paper rỗng không bao giờ được giao.
+**Old files replaced:** `AuthServiceImpl`, `StudentServiceImpl`, `InstructorService(+Impl)`, `DatabaseConnection`,
+`DAO/jdbc/*` (Attempt, Exam, Jdbc, Paper, Question, Stats, Student, User), `InstructorCoursesPage`, `pom.xml`,
+`.gitignore`, README/documents, `01`/`02` SQL (02 = the group's version).
+**Added:** `GradingDAO`, `GradingTab`, `ReportsTab`, JUnit tests, `demo/03_demo_seed.sql`, `05_upgrade_password_hashes.sql`,
+`queries/PDMProjectQuery.sql`, `.gitattributes`.
 
-**#11 – Môn tiên quyết (REQUIRES) khi đăng ký thi.** `StudentDAO.missingPrerequisites` + kiểm tra trong
-`StudentServiceImpl.registerForExam`: phải **đậu** (bài đã chấm xong, % >= Pass_mark, view `v_attempt_scores`)
-ít nhất 1 exam của **mỗi course tiên quyết trực tiếp**; course tiên quyết chưa có exam PUBLISHED thì bỏ qua.
-Thông báo: "You must pass Data Structures and Algorithms before registering for this exam (prerequisite)."
-Trong seed: PDM (course 1) yêu cầu DSA (course 3); chỉ **sv106, sv111** đã đậu DSA.
+**Old code `org.example.DAO` + `MODEL` + `StudentResultService` (kept by the group) – updated for 21 tables:**
+- `CourseDAO`, `TopicDAO`, `ExaminationDAO`: correct column names.
+- `QuestionDAO.SELECT_BASE`: UPPERCASE `QUESTION/MCQ/SHORT_ANSWER`, aliases matching what `mapRow` reads.
+- `ScoreDAO`: `CONTAINS` → `PAPER_QUESTION` + `EXAM_QUESTION_MARKS`; "submitted" = `EndTime IS NOT NULL`.
+- `MODEL/Attempt.isSubmitted()`: `EndTime != null`. `MODEL/Score`: passed when **%** >= `Pass_mark` (Pass_mark is a %).
+- `StudentResultService`: starts an attempt with `EndTime NULL`; MCQs saved as `AnswerText NULL` + `SELECT_TABLE`; not graded = `NULL`.
+- `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql`: moved to 21 tables.
+- `StudentResultsTestRunner`: expectations follow the 21-table conventions.
 
-**Connection pool – HikariCP 5.1.0** (+ `slf4j-nop`, trong `pom.xml`). `DatabaseConnection.getConnection()` giữ nguyên
-cách dùng (try-with-resources trả kết nối về pool). Tối đa 5 kết nối (`db.pool.size`), chờ tối đa 10 s, làm mới mỗi
-20 phút; sai URL/mật khẩu báo lỗi ngay "Cannot connect to the database: ...". Kiểm chứng: 40 truy vấn dùng lại 1 kết nối.
-**Sau khi chép: Maven -> Reload project** để tải HikariCP.
+**Tests on the merged project (database = the group's 02, MySQL 8 Linux):** all main + test code compiles;
+`StudentResultsTestRunner` 56/56; sign-in 6/6; student flow 11/11; manual grading 8/8; create exam/question/paper 7/7;
+Reports 11/11 matching the .sql file; JUnit 14/14; the old DAOs read the data correctly (15 courses, 18 topics, 19 exams, ...).
 
-`StudentResultService` (code cũ) cũng lấy giờ từ DB.
-Test cập nhật theo quy tắc tiên quyết: `EndToEndTest` (sv104 bị chặn, sv106 đăng ký được).
+---
 
-**Kiểm thử (MySQL 8, server UTC như Aiven):** kịch bản demo 17/17 (cả khi máy để múi giờ New York); tính năng mới 11/11;
-đăng nhập 6/6; luồng sinh viên 11/11; chấm tay 8/8; ghi dữ liệu giảng viên 7/7; Reports 11/11; 03_verify 39/39;
-`StudentResultsTestRunner` 56/56; JUnit 14/14.
+## Step 11 – Database clock, paper rotation, prerequisites, connection pool
 
-## Bước 12 – Kịch bản demo mới + README cho thành viên
+**#8 – Exam times follow the DATABASE clock, not the user's computer.**
+- NEW `Db.now(conn)` = `SELECT NOW()`; every place that used `LocalDateTime.now()` in `StudentServiceImpl` /
+  `InstructorServiceImpl` (exam open/close, register, start, save, submit, closing expired attempts, exam status) uses the database time.
+- Every connection runs `SET time_zone = '+07:00'` (key `db.timezone`, default +07:00) → `NOW()` is in the same time
+  zone as `Exam_date` / `StartTime` even though the Aiven server runs in UTC. The exam countdown already used the seconds returned by the server.
+- Verified: server in UTC + computer set to New York time → **old code**: students saw `DEMO - Open now` as UPCOMING,
+  "This exam is not open yet"; **new code**: the whole demo script PASSES.
 
-- `README.md` viết lại: clone → truststore → `application.properties` → Workbench → chạy seed demo → chạy app,
-  bảng tài khoản, xử lý lỗi, danh sách file SQL, build/test, cấu trúc project.
-- `docs/DEMO_SCRIPT.md`: kịch bản demo A–E (sv103 làm bài/Resume, sv101 hết giờ tự đóng, inst01 chấm/Reports/
-  Statistics/Publish/Question bank, sv103 xem 55/60, sv104 bị chặn môn tiên quyết – sv106 đăng ký được).
-- `database/demo/03_demo_seed.sql`: `DEMO - Open now` có thêm **Paper 2** (cùng câu hỏi, thứ tự khác) để demo xoay vòng đề.
-  Kiểm thử: chạy seed 2 lần liên tiếp OK; kịch bản demo 17/17; tính năng mới 11/11.
+**#9 – Several papers per exam.** `AttemptDAO.pickPaperKey` (replaces `firstPaperKey`): only papers with questions;
+prefers the paper that student has used least (a retake gets another paper); ties rotate by the exam's attempt count
+(the next student gets a different paper). Marks per question still come from the exam (`EXAM_QUESTION_MARKS`) – as
+normalized: the same question in an exam has the same marks on every paper.
+Verified: 3 students → papers 1, 2, 1; retake → paper 2; an empty paper is never assigned.
 
-## Bước 13 – Dữ liệu mẫu thêm cho các khóa ngoài PDM (tùy chọn)
+**#11 – Prerequisites (REQUIRES) at registration.** `StudentDAO.missingPrerequisites` + a check in
+`StudentServiceImpl.registerForExam`: the student must have **passed** (fully graded, % >= Pass_mark, view `v_attempt_scores`)
+at least one exam of **each direct prerequisite course**; a prerequisite course with no PUBLISHED exam is ignored.
+Message: "You must pass Data Structures and Algorithms before registering for this exam (prerequisite)."
+In the seed: PDM (course 1) requires DSA (course 3); only **sv106, sv111** have passed DSA.
 
-- `database/demo/04_extra_sample_data.sql`: 14 khóa (2–15), mỗi khóa 6 câu hỏi (4 MCQ + 2 tự luận) và 2 exam
-  đã thi xong (`<khóa> Practice Test` 40 ngày trước, 2 lượt; `<khóa> Progress Quiz` 12 ngày trước, 1 lượt).
-  Tổng 84 câu hỏi, 28 exam, 147 đăng ký, 178 lượt làm bài, 820 câu trả lời, tất cả đã chấm.
-- ID cố định: Quest_ID 2001–2084, Exam_ID 2001–2028, RegisID 20001–20147 (app sinh MAX + 1 nên dòng tạo sau không rơi vào).
-  Chạy lại được (tự xóa khối của mình trước khi chèn); `04_extra_sample_data_cleanup.sql` để gỡ.
-- Tôn trọng luật app: chỉ xếp sinh viên vào khóa khi đã đậu môn tiên quyết (`REQUIRES`); sv104 không thi DSA;
-  không đụng PDM (khóa 1, topic 1–4) và exam `DEMO - ...` → kịch bản demo không đổi.
-- Kiểm thử với dữ liệu mẫu đã nạp: demo 17/17, tính năng mới 11/11, luồng sinh viên, chấm, ghi giảng viên,
-  đăng nhập đều qua; Reports Q1–Q11 khớp file SQL; smoke test mọi màn hình cho 14 giảng viên + 20 sinh viên 34/34.
-  Chạy 2 lần liên tiếp ra kết quả giống hệt.
+**Connection pool – HikariCP 5.1.0** (+ SLF4J in `pom.xml`). `DatabaseConnection.getConnection()` is used as before
+(try-with-resources returns the connection to the pool). At most 5 connections (`db.pool.size`), 10 s wait, refreshed
+every 20 minutes; a wrong URL/password fails at once with "Cannot connect to the database: ...".
+**After copying: Maven → Reload project** to download HikariCP.
 
-## Bước 14 – Đóng gói bản nộp không chứa mật khẩu + chạy SQL demo từ app
+`StudentResultService` (old code) also reads the time from the database.
+Tests updated for the prerequisite rule: `EndToEndTest` (sv104 blocked, sv106 can register).
 
-- `pom.xml`: jar **không** đóng `application.properties` nữa; đóng thêm `database/demo/*.sql` vào `sql/` trong jar.
-- `DatabaseConnection`: đọc settings theo thứ tự `--config=` / `-Dapp.config` → `application.properties` cạnh jar →
-  classpath (IntelliJ, như cũ). Truststore đường dẫn tương đối tính theo thư mục file settings.
-- `Main`: lệnh `--check`, `--setup-demo`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`
-  (không có lệnh thì mở app như cũ; thiếu settings thì báo hộp thoại rõ ràng).
-- `util/SqlScriptRunner`: chạy file SQL trong jar bằng kết nối của app, cả file trong 1 transaction (lỗi → rollback),
-  in bảng kết quả của các câu SELECT.
-- `database/demo/03_demo_cleanup.sql` (mới): xóa các exam `DEMO - ...`.
-- `04_extra_sample_data.sql`: gộp INSERT nhiều dòng (2163 → 351 câu lệnh, cùng dữ liệu, đã so sánh từng dòng).
-- `packaging/` + `make_submission.bat|.sh`: gom thư mục `submission/` (jar, run.bat, check_connection.bat, setup_demo.bat,
-  cleanup_demo.bat, add/cleanup_sample_data.bat, app.sh, HUONG_DAN.txt, mẫu application.properties). `submission/` nằm trong `.gitignore`.
-- Kiểm thử: chạy jar với settings cạnh jar – mọi lệnh OK, chạy lặp lại OK, lỗi giữa chừng rollback sạch;
-  dữ liệu nạp bằng jar giống hệt nạp bằng MySQL; demo 17/17, smoke test dữ liệu mẫu 34/34, unit test 0 lỗi.
+**Tests (MySQL 8, server in UTC like Aiven):** demo script 17/17 (also with the computer set to New York time);
+new features 11/11; sign-in 6/6; student flow 11/11; manual grading 8/8; instructor writes 7/7; Reports 11/11;
+03_verify 39/39; `StudentResultsTestRunner` 56/56; JUnit 14/14.
+
+Still open from the progress report: #10 – the permission checks in the services are skipped when there is no Session
+(accepted for tests; the app always signs in first).
+
+## Step 12 – New demo script + README for members
+
+- `README.md` rewritten: clone → truststore → `application.properties` → Workbench → run the demo seed → run the app,
+  accounts table, troubleshooting, list of SQL files, build/test, project structure.
+- `docs/DEMO_SCRIPT.md`: demo parts A–E (sv103 takes the exam/Resume, sv101 time-out closed automatically, inst01
+  grading/Reports/Statistics/Publish/Question bank, sv103 sees 55/60, sv104 blocked by the prerequisite – sv106 can register).
+- `database/demo/03_demo_seed.sql`: `DEMO - Open now` gets a **Paper 2** (same questions, different order) to show paper rotation.
+  Tests: seed run twice in a row OK; demo script 17/17; new features 11/11.
+
+## Step 13 – Extra sample data for courses other than PDM (optional)
+
+- `database/demo/04_extra_sample_data.sql`: 14 courses (2–15), each with 6 questions (4 MCQ + 2 short answers) and 2
+  finished exams (`<course> Practice Test` 40 days ago, 2 attempts; `<course> Progress Quiz` 12 days ago, 1 attempt).
+  In total 84 questions, 28 exams, 147 registrations, 178 attempts, 820 answers, all graded.
+- Fixed IDs: Quest_ID 2001–2084, Exam_ID 2001–2028, RegisID 20001–20147 (the app generates MAX + 1, so rows created later never fall inside).
+  Re-runnable (removes its own block before inserting); `04_extra_sample_data_cleanup.sql` removes it.
+- Follows the app rules: students are only placed in a course after passing its prerequisites (`REQUIRES`); sv104 never
+  takes DSA; PDM (course 1, topics 1–4) and the `DEMO - ...` exams are untouched → the demo script is unchanged.
+- Tests with the sample data loaded: demo 17/17, new features 11/11, student flow, grading, instructor writes and
+  sign-in all pass; Reports Q1–Q11 match the SQL file; smoke test of every screen for 14 instructors + 20 students 34/34.
+  Two runs in a row give identical results.
+
+## Step 14 – Submission build without a password + running the demo SQL from the app
+
+- `pom.xml`: the jar **no longer** contains `application.properties`; `database/demo/*.sql` is packed into `sql/` in the jar.
+  `slf4j-api` pinned to 2.0.13 (same line as `slf4j-nop`) to remove the `StaticLoggerBinder` warning.
+- `DatabaseConnection`: reads the settings from `--config=` / `-Dapp.config` → `application.properties` next to the jar →
+  the classpath (IntelliJ, as before). A relative truststore path is resolved from the settings file's folder.
+- `Main`: commands `--check`, `--setup-demo`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`
+  (no command opens the app as before; missing settings are reported in a clear dialog).
+- `util/SqlScriptRunner`: runs the SQL files packed in the jar over the app's connection, each file in one transaction
+  (error → rollback), printing the result table of SELECT statements.
+- `database/demo/03_demo_cleanup.sql` (new): removes the `DEMO - ...` exams.
+- `04_extra_sample_data.sql`: multi-row INSERTs (2163 → 351 statements, same data, compared row by row).
+- `packaging/` + `make_submission.bat|.sh`: build the `submission/` folder (jar, run.bat, check_connection.bat,
+  setup_demo.bat, cleanup_demo.bat, add/cleanup_sample_data.bat, app.sh, RUN_GUIDE.txt, application.properties template).
+  `submission/` is in `.gitignore`.
+- Tests: jar run with the settings next to it – every command OK, repeated runs OK, a failure half-way rolls back
+  cleanly; data loaded by the jar is identical to data loaded by MySQL; demo 17/17, sample-data smoke test 34/34, unit tests 0 failures.
+
+## Step 15 – English documentation
+
+- `README.md`, `docs/DEMO_SCRIPT.md`, this file and the other guides translated to English.
+  Vietnamese backups: [README.vi.md](README.vi.md), [docs/DEMO_SCRIPT.vi.md](docs/DEMO_SCRIPT.vi.md).
+- `packaging/HUONG_DAN.txt` → `packaging/RUN_GUIDE.txt` (English); `make_submission.bat|.sh` messages in English.

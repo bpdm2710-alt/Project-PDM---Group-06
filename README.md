@@ -1,75 +1,77 @@
 # Online Examination System — Project PDM, Group 06
 
-Ứng dụng desktop **Java Swing + MySQL** cho thi trắc nghiệm / tự luận online:
-sinh viên đăng ký và làm bài có giới hạn thời gian, giảng viên ra đề, chấm tự luận, xem báo cáo và thống kê.
+> 🇻🇳 Tiếng Việt: [README.vi.md](README.vi.md)
+
+A **Java Swing + MySQL** desktop application for online multiple-choice and short-answer exams:
+students register for and take timed exams, instructors build exams, grade short answers, and view reports and statistics.
 
 | | |
 |---|---|
-| Ngôn ngữ / UI | Java 21, Swing |
-| Database | MySQL 8.4 trên **Aiven** (SSL `VERIFY_CA`), schema `Online_Examination`, **21 bảng BCNF** |
-| Truy cập DB | JDBC + HikariCP (connection pool) |
-| Build | Maven (`maven-shade` → 1 file jar chạy được) |
+| Language / UI | Java 21, Swing |
+| Database | MySQL 8.4 on **Aiven** (SSL `VERIFY_CA`), schema `Online_Examination`, **21 tables in BCNF** |
+| Database access | JDBC + HikariCP (connection pool) |
+| Build | Maven (`maven-shade` → one runnable jar) |
 
-**Tính năng chính**
-* Đăng nhập theo vai trò (mật khẩu hash PBKDF2-SHA256).
-* Sinh viên: xem khóa học, đăng ký exam (kiểm tra **môn tiên quyết**), làm bài có đồng hồ, lưu từng câu, **Resume** khi lỡ thoát, xem kết quả.
-* Giờ thi theo **đồng hồ của DB** (+07:00), không phụ thuộc giờ máy người dùng; lượt quá giờ tự đóng và tự chấm.
-* Một exam có **nhiều paper (đề)**, lượt mới được xoay vòng sang đề khác.
-* Chấm tự động MCQ / tự luận khớp đáp án; còn lại vào tab **Grading** cho giảng viên.
-* Giảng viên: quản lý exam (Draft → Publish), Build paper, Question bank, **Reports Q1–Q11**, Statistics.
+**Main features**
+* Role-based sign-in (passwords hashed with PBKDF2-SHA256).
+* Students: browse courses, register for exams (with a **prerequisite** check), take timed exams with every answer saved as they go, **Resume** after leaving by accident, view results.
+* Exam times follow the **database clock** (+07:00), not the user's computer clock; attempts that run out of time are closed and graded automatically.
+* One exam can have **several papers**; each new attempt rotates to another paper.
+* MCQs and short answers that match the answer key are graded automatically; the rest go to the instructor's **Grading** tab.
+* Instructors: manage exams (Draft → Publish), Build paper, Question bank, **Reports Q1–Q11**, Statistics.
 
-👉 **Kịch bản demo chi tiết: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)**
-
----
-
-## Mục lục
-1. [Chuẩn bị phần mềm](#1-chuẩn-bị-phần-mềm)
-2. [Clone project](#2-clone-project)
-3. [Tạo truststore từ CA certificate](#3-tạo-truststore-từ-ca-certificate)
-4. [Cấu hình `application.properties`](#4-cấu-hình-applicationproperties)
-5. [Cấu hình MySQL Workbench](#5-cấu-hình-mysql-workbench)
-6. [Chạy thử demo](#6-chạy-thử-demo)
-7. [Tài khoản demo](#7-tài-khoản-demo)
-8. [Xử lý lỗi thường gặp](#8-xử-lý-lỗi-thường-gặp)
-9. [Các file SQL](#9-các-file-sql)
-10. [Build, test, đóng gói](#10-build-test-đóng-gói)
-11. [Cấu trúc project](#11-cấu-trúc-project)
+👉 **Step-by-step demo script: [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)**
 
 ---
 
-## 1. Chuẩn bị phần mềm
+## Contents
+1. [Required software](#1-required-software)
+2. [Clone the project](#2-clone-the-project)
+3. [Create a truststore from the CA certificate](#3-create-a-truststore-from-the-ca-certificate)
+4. [Configure `application.properties`](#4-configure-applicationproperties)
+5. [Configure MySQL Workbench](#5-configure-mysql-workbench)
+6. [Try the demo](#6-try-the-demo)
+7. [Demo accounts](#7-demo-accounts)
+8. [Troubleshooting](#8-troubleshooting)
+9. [SQL files](#9-sql-files)
+10. [Build, test and package](#10-build-test-and-package)
+11. [Project structure](#11-project-structure)
+
+---
+
+## 1. Required software
 
 * **Git**
-* **IntelliJ IDEA** (Community hoặc Ultimate) — Maven có sẵn trong IntelliJ, không cần cài riêng
-* **JDK 21** trở lên (IntelliJ: *File → Project Structure → SDK → Download JDK* nếu chưa có)
-* **MySQL Workbench 8.x** (để chạy script SQL demo)
-* Từ nhóm (qua **Zalo**): file `ca.pem`, **username / password Aiven riêng của bạn**
+* **IntelliJ IDEA** (Community or Ultimate) — Maven is built in, no separate install needed
+* **JDK 21** or later (IntelliJ: *File → Project Structure → SDK → Download JDK* if you don't have it)
+* **MySQL Workbench 8.x** (to run the demo SQL scripts)
+* From the group (shared on **Zalo**): the `ca.pem` file and **your own Aiven username / password**
 
-## 2. Clone project
+## 2. Clone the project
 
 ```bash
 git clone https://github.com/bpdm2710-alt/Project-PDM---Group-06.git
 ```
 
-Hoặc trong IntelliJ: *File → New → Project from Version Control* → dán URL trên → **Clone**.
+Or in IntelliJ: *File → New → Project from Version Control* → paste the URL above → **Clone**.
 
-Sau khi mở project:
-1. Chờ IntelliJ nhận `pom.xml`; nếu chưa tự tải thư viện, mở tab **Maven** (bên phải) → bấm **Reload All Maven Projects** 🔄.
-2. Kiểm tra *Project Structure → Project SDK* = 21.
+After opening the project:
+1. Wait for IntelliJ to load `pom.xml`. If the libraries are not downloaded automatically, open the **Maven** tab (right side) → click **Reload All Maven Projects** 🔄.
+2. Check that *Project Structure → Project SDK* is 21.
 
-Lần sau chỉ cần `git pull` (hoặc *Git → Pull*) rồi **Maven Reload**.
+Later you only need `git pull` (or *Git → Pull*) followed by **Maven Reload**.
 
-## 3. Tạo truststore từ CA certificate
+## 3. Create a truststore from the CA certificate
 
-Lưu `ca.pem` vào một thư mục trên máy, ví dụ `D:\IU\PDMLAB\CA_CER\`.
+Save `ca.pem` in a folder on your computer, for example `D:\IU\PDMLAB\CA_CER\`.
 
-**Bước 1** — Mở Terminal trong IntelliJ, kiểm tra `keytool` có sẵn:
+**Step 1** — Open the Terminal in IntelliJ and check that `keytool` is available:
 
 ```powershell
 keytool -help
 ```
 
-**Bước 2** — Tạo truststore PKCS12 (đổi đường dẫn cho đúng máy bạn):
+**Step 2** — Create a PKCS12 truststore (change the paths to match your computer):
 
 ```powershell
 keytool -importcert -trustcacerts `
@@ -79,183 +81,184 @@ keytool -importcert -trustcacerts `
   -storetype PKCS12
 ```
 
-* Khi được hỏi, **đặt mật khẩu truststore** và ghi nhớ (dùng ở bước 4).
-* Khi hỏi *Trust this certificate?* gõ `yes` → Enter.
-* Kiểm tra file `aiven-truststore.p12` đã được tạo.
+* When asked, **choose a truststore password** and remember it (you need it in step 4).
+* When asked *Trust this certificate?* type `yes` → Enter.
+* Check that `aiven-truststore.p12` has been created.
 
-> Không tìm thấy `keytool`? Dùng bản trong JDK: `"<thư mục JDK>\bin\keytool.exe" ...`
+> `keytool` not found? Use the one inside the JDK: `"<JDK folder>\bin\keytool.exe" ...`
 
-## 4. Cấu hình `application.properties`
+## 4. Configure `application.properties`
 
-1. Copy `src/main/Sources/application.properties.example` → **`src/main/Sources/application.properties`** (cùng thư mục).
-2. Điền thông tin:
+1. Copy `src/main/Sources/application.properties.example` → **`src/main/Sources/application.properties`** (same folder).
+2. Fill in your details:
 
 ```properties
 db.url=jdbc:mysql://mysql-224eb3e6-pn8935916-f2fb.h.aivencloud.com:20365/Online_Examination?sslMode=VERIFY_CA
-db.username=<username được cấp qua Zalo>
-db.password=<password được cấp qua Zalo>
+db.username=<username shared on Zalo>
+db.password=<password shared on Zalo>
 db.ssl.truststore=D:/IU/PDMLAB/CA_CER/aiven-truststore.p12
-db.ssl.truststore.password=<mật khẩu truststore bạn đặt ở bước 3>
+db.ssl.truststore.password=<the truststore password you chose in step 3>
 
-# tùy chọn (có giá trị mặc định)
+# optional (defaults shown)
 # db.timezone=+07:00
 # db.pool.size=5
 ```
 
-* Đường dẫn truststore dùng dấu `/` (hoặc `\\`).
-* Mỗi thành viên dùng **đúng tài khoản được cấp cho mình**.
+* Use `/` (or `\\`) in the truststore path.
+* Each member uses **the account given to them**.
 
-> ⚠️ **Không commit `application.properties`** (đã có trong `.gitignore`). Trước khi commit, xem lại tab *Commit*
-> không có file này. Không gửi file jar đã build (có chứa mật khẩu) cho người ngoài nhóm.
+> ⚠️ **Do not commit `application.properties`** (it is already in `.gitignore`). Before committing, check that the
+> *Commit* tab does not list this file. The built jar does **not** contain this file (see section 10).
 
-## 5. Cấu hình MySQL Workbench
+## 5. Configure MySQL Workbench
 
-Tạo connection mới:
-* **Hostname / Port:** endpoint Aiven (`mysql-224eb3e6-pn8935916-f2fb.h.aivencloud.com`, port `20365`)
-* **Username / Password:** tài khoản được cấp cho bạn
-* **SSL:** *Use SSL* = `Require and Verify CA`, **SSL CA File** = đường dẫn `ca.pem`
+Create a new connection:
+* **Hostname / Port:** the Aiven endpoint (`mysql-224eb3e6-pn8935916-f2fb.h.aivencloud.com`, port `20365`)
+* **Username / Password:** the account given to you
+* **SSL:** *Use SSL* = `Require and Verify CA`, **SSL CA File** = path to `ca.pem`
 
 <img width="885" height="352" alt="Workbench connection" src="https://github.com/user-attachments/assets/731629a1-e3a7-4742-89b8-7e6a97a91689" />
 <img width="830" height="363" alt="Workbench SSL" src="https://github.com/user-attachments/assets/93ce5b89-50f6-443d-9c50-324ffa60e55d" />
 
-Bấm **Test Connection** → thành công thì mở schema **`Online_Examination`** (phải có 21 bảng tên VIẾT HOA).
+Click **Test Connection**. If it succeeds, open the **`Online_Examination`** schema (it must have 21 tables with UPPERCASE names).
 
 Checklist:
-- [ ] Project mở được trong IntelliJ, Maven Reload không lỗi
-- [ ] `application.properties` đã điền đúng
-- [ ] Truststore đã tạo, đường dẫn đúng
-- [ ] Workbench kết nối thành công
+- [ ] The project opens in IntelliJ and Maven Reload has no errors
+- [ ] `application.properties` is filled in correctly
+- [ ] The truststore exists and its path is correct
+- [ ] Workbench connects successfully
 
-## 6. Chạy thử demo
+## 6. Try the demo
 
-DB trên Aiven **đã được dựng sẵn** (script `02` + `05`). Bạn **chỉ cần nạp dữ liệu demo**:
+The database on Aiven **is already built** (scripts `02` + `05`). You **only need to load the demo data**:
 
-1. Workbench → *File → Open SQL Script* → `database/demo/03_demo_seed.sql` → bấm ⚡ (**Execute all**).
-2. Nếu Workbench tắt auto-commit, chạy thêm `COMMIT;`.
-3. Kết quả cuối phải có 4 exam: `DEMO - Open now`, `DEMO - Upcoming`, `DEMO - Expired attempt`, `DEMO - Draft`.
-4. IntelliJ: mở `src/main/java/org/example/Main.java` → bấm ▶ **Run 'Main.main()'**.
-5. Đăng nhập `sv103@student.hcmiu.edu.vn` / `Stu@123` → tab **My exams** → `DEMO - Open now` → **Start exam**.
+1. Workbench → *File → Open SQL Script* → `database/demo/03_demo_seed.sql` → click ⚡ (**Execute all**).
+2. If auto-commit is off in Workbench, also run `COMMIT;`.
+3. The final result must list 4 exams: `DEMO - Open now`, `DEMO - Upcoming`, `DEMO - Expired attempt`, `DEMO - Draft`.
+4. IntelliJ: open `src/main/java/org/example/Main.java` → click ▶ **Run 'Main.main()'**.
+5. Sign in as `sv103@student.hcmiu.edu.vn` / `Stu@123` → **My exams** tab → `DEMO - Open now` → **Start exam**.
 
-Làm tiếp theo **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)** (phần A → E: làm bài, hết giờ, chấm bài, báo cáo, môn tiên quyết).
+Continue with **[docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md)** (parts A → E: taking an exam, time-out, grading, reports, prerequisites).
 
-> ⚠️ DB là **dùng chung**: chạy `03_demo_seed.sql` sẽ **reset dữ liệu `DEMO - ...` của cả nhóm**. Báo trong nhóm trước khi chạy.
-> `DEMO - Open now` mở **180 phút** kể từ lúc chạy script; quá giờ thì chạy lại script.
-> Chỉ `sv101`, `sv102`, `sv103` được đăng ký sẵn exam này.
+> ⚠️ The database is **shared**: running `03_demo_seed.sql` **resets the `DEMO - ...` data for the whole group**. Tell the group before running it.
+> `DEMO - Open now` stays open for **180 minutes** from the moment the script runs; after that, run the script again.
+> Only `sv101`, `sv102` and `sv103` are pre-registered for this exam.
 
-## 7. Tài khoản demo
+## 7. Demo accounts
 
-| Vai trò | Email | Mật khẩu |
+| Role | Email | Password |
 |---|---|---|
-| Giảng viên (ID 1–15) | `inst01@hcmiu.edu.vn` … `inst15@hcmiu.edu.vn` | `Inst@123` |
-| Sinh viên (ID 101–120) | `sv101@student.hcmiu.edu.vn` … `sv120@student.hcmiu.edu.vn` | `Stu@123` |
+| Instructor (ID 1–15) | `inst01@hcmiu.edu.vn` … `inst15@hcmiu.edu.vn` | `Inst@123` |
+| Student (ID 101–120) | `sv101@student.hcmiu.edu.vn` … `sv120@student.hcmiu.edu.vn` | `Stu@123` |
 
-Tài khoản dùng trong kịch bản:
+Accounts used in the demo script:
 
-| Tài khoản | Dùng để demo |
+| Account | Used to demo |
 |---|---|
-| `sv103` | Làm bài `DEMO - Open now`, nộp, làm lượt 2 rồi **Resume**, xem kết quả sau khi chấm (55/60) |
-| `sv101` | Lượt `DEMO - Expired attempt` bị hệ thống tự đóng khi hết giờ (10/40) |
-| `inst01` | Khóa PDM: Grading, Reports Q1–Q11, Statistics, Publish `DEMO - Draft`, Question bank |
-| `sv104` | Đăng ký `DEMO - Upcoming` → **bị chặn** vì chưa đậu môn tiên quyết DSA |
-| `sv106` | Đăng ký `DEMO - Upcoming` → thành công (đã đậu DSA) |
+| `sv103` | Take `DEMO - Open now`, submit, start a 2nd attempt and **Resume** it, view the result after grading (55/60) |
+| `sv101` | The `DEMO - Expired attempt` attempt closed automatically by the system when time ran out (10/40) |
+| `inst01` | PDM course: Grading, Reports Q1–Q11, Statistics, Publish `DEMO - Draft`, Question bank |
+| `sv104` | Register for `DEMO - Upcoming` → **blocked** because the DSA prerequisite is not passed |
+| `sv106` | Register for `DEMO - Upcoming` → succeeds (DSA passed) |
 
-## 8. Xử lý lỗi thường gặp
+## 8. Troubleshooting
 
-| Hiện tượng | Nguyên nhân / cách xử lý |
+| Symptom | Cause / fix |
 |---|---|
-| `Cannot connect to the database: ...` | Sai `application.properties` (username, password, đường dẫn / mật khẩu truststore), hoặc mất mạng. File phải nằm đúng `src/main/Sources/`. |
-| `Email or password incorrect` dù nhập đúng | Code cũ → `git pull` + Maven Reload. Nếu DB mới dựng lại: chạy `05_upgrade_password_hashes.sql` + `COMMIT;`. |
-| Không thấy exam để làm / thẻ toàn **COMPLETED** | Seed demo chưa chạy hoặc đã quá 180 phút → chạy lại `03_demo_seed.sql` + `COMMIT;`. Đăng nhập đúng sv101–sv103. |
-| Chạy script xong app không thấy thay đổi | Workbench đang tắt auto-commit → `COMMIT;`. |
-| IntelliJ báo đỏ tên bảng/cột trong file `.sql` hoặc chuỗi SQL | Data source của IntelliJ còn cache schema cũ → tab *Database* → chuột phải data source → **Refresh**. Không ảnh hưởng chạy app. |
-| Báo đỏ `import com.zaxxer...` / thiếu thư viện | Chưa Maven Reload. |
-| `Unsupported class file major version` / lỗi Java | Project SDK chưa phải 21. |
+| `Cannot connect to the database: ...` | Wrong `application.properties` (username, password, truststore path / password) or no network. The file must be in `src/main/Sources/`. |
+| `Email or password incorrect` although typed correctly | Old code → `git pull` + Maven Reload. If the database was just rebuilt: run `05_upgrade_password_hashes.sql` + `COMMIT;`. |
+| No exam to take / every card shows **COMPLETED** | The demo seed was not run or more than 180 minutes have passed → run `03_demo_seed.sql` + `COMMIT;` again. Sign in as sv101–sv103. |
+| A script ran but the app shows no change | Auto-commit is off in Workbench → `COMMIT;`. |
+| IntelliJ shows table/column names in red in `.sql` files or SQL strings | IntelliJ's data source still caches an old schema → *Database* tab → right-click the data source → **Refresh**. Does not affect running the app. |
+| Red `import com.zaxxer...` / missing libraries | Maven Reload has not been done. |
+| `Unsupported class file major version` / Java errors | The Project SDK is not 21. |
 
-## 9. Các file SQL
+## 9. SQL files
 
-| File | Dùng khi nào |
+| File | When to use it |
 |---|---|
-| `database/demo/03_demo_seed.sql` | **Trước mỗi buổi demo** (chạy lại thoải mái, chỉ đụng tới exam `DEMO - ...`). Gỡ: `03_demo_cleanup.sql` |
-| `database/demo/04_extra_sample_data.sql` | (tùy chọn) Thêm dữ liệu cho 14 khóa ngoài PDM: 84 câu hỏi, 28 exam đã thi xong, 147 đăng ký, 178 lượt làm bài đã chấm. Chạy lại được; gỡ bằng `04_extra_sample_data_cleanup.sql`. Không đụng PDM và exam `DEMO - ...` |
-| `database/normalized_21tables/02_online_examination_full_submission.sql` | Dựng mới toàn bộ DB: 21 bảng, view, trigger, procedure, seed (**xóa dữ liệu cũ**, không chạy lên Aiven nếu chưa thống nhất) |
-| `database/normalized_21tables/05_upgrade_password_hashes.sql` | Ngay sau `02`: đổi mật khẩu seed thành hash PBKDF2 (`Inst@123` / `Stu@123`) |
-| `database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql` | Test ràng buộc (phải ra `PASSED=39 / FAILED=0`), chạy ngay sau `02` trên bản sao. **Không phải file demo** |
-| `database/normalized_21tables/01_schema_ddl_for_mwb_import.sql` | Chỉ DDL, để Reverse Engineer ra `.mwb` trong Workbench |
-| `database/queries/PDMProjectQuery.sql` | Query phân tích Q1–Q11 (giống tab **Reports** trong app) + Q12 bản view của Q11 |
-| `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql` | Dữ liệu test riêng (ID 9001+) và dọn dẹp |
+| `database/demo/03_demo_seed.sql` | **Before every demo** (safe to re-run, only touches the `DEMO - ...` exams). Remove with `03_demo_cleanup.sql` |
+| `database/demo/04_extra_sample_data.sql` | (optional) Extra data for the 14 courses other than PDM: 84 questions, 28 finished exams, 147 registrations, 178 graded attempts. Re-runnable; remove with `04_extra_sample_data_cleanup.sql`. Does not touch PDM or the `DEMO - ...` exams |
+| `database/normalized_21tables/02_online_examination_full_submission.sql` | Builds the whole database from scratch: 21 tables, views, triggers, procedures, seed data (**deletes existing data**; do not run on Aiven without agreeing first) |
+| `database/normalized_21tables/05_upgrade_password_hashes.sql` | Right after `02`: turns the seed passwords into PBKDF2 hashes (`Inst@123` / `Stu@123`) |
+| `database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql` | Constraint tests (must show `PASSED=39 / FAILED=0`), run right after `02` on a copy. **Not a demo file** |
+| `database/normalized_21tables/01_schema_ddl_for_mwb_import.sql` | DDL only, for Reverse Engineer into an `.mwb` in Workbench |
+| `database/queries/PDMProjectQuery.sql` | Analysis queries Q1–Q11 (same as the app's **Reports** tab) + Q12, the view version of Q11 |
+| `database/student_results/01_seed_test.sql`, `02_cleanup_test.sql` | Separate test data (IDs 9001+) and its cleanup |
 
-Dựng lại DB từ đầu (chỉ khi cần): `02` → (tùy chọn `03_verify` trên bản sao) → `05` → `demo/03_demo_seed.sql` → (tùy chọn) `demo/04_extra_sample_data.sql` → `COMMIT;`
+Rebuilding the database from scratch (only when needed): `02` → (optional `03_verify` on a copy) → `05` → `demo/03_demo_seed.sql` → (optional) `demo/04_extra_sample_data.sql` → `COMMIT;`
 
-Ghi chú schema: tên bảng **VIẾT HOA**; chỉ `PAPER.PaperKey` là AUTO_INCREMENT, các ID khác app tự sinh = MAX + 1
-trong transaction. Chi tiết chuẩn hóa: [docs/normalization/README.md](docs/normalization/README.md),
-sơ đồ: [docs/design/](docs/design/).
+Schema notes: table names are **UPPERCASE**; only `PAPER.PaperKey` is AUTO_INCREMENT, every other ID is generated by the app as MAX + 1
+inside a transaction. Normalization details: [docs/normalization/README.md](docs/normalization/README.md),
+diagrams: [docs/design/](docs/design/).
 
-## 10. Build, test, đóng gói
+## 10. Build, test and package
 
 ```bash
-mvn test        # unit test, không cần DB
-mvn package     # tạo target/Online_Examination_System-1.0-SNAPSHOT-all.jar
+mvn test        # unit tests, no database needed
+mvn package     # builds target/Online_Examination_System-1.0-SNAPSHOT-all.jar
 ```
 
-### Jar không chứa mật khẩu
+### The jar contains no password
 
-Jar **không đóng kèm** `application.properties`. Khi chạy, app tìm settings theo thứ tự:
+The jar does **not** include `application.properties`. At start-up the app looks for its settings in this order:
 
-1. File chỉ định bằng `--config=<đường dẫn>` (hoặc `-Dapp.config=<đường dẫn>`)
-2. `application.properties` **nằm cạnh file jar**
-3. `src/main/Sources/application.properties` (khi chạy từ IntelliJ, như trước)
+1. The file given with `--config=<path>` (or `-Dapp.config=<path>`)
+2. `application.properties` **next to the jar file**
+3. `src/main/Sources/application.properties` (when running from IntelliJ, as before)
 
-Nên: **IntelliJ dùng tài khoản của bạn để demo**, còn **bản nộp dùng file `application.properties` riêng** đặt cạnh jar, với tài khoản Aiven tạo riêng cho việc nộp. Hai file không đụng nhau.
-Đường dẫn truststore tương đối (vd `aiven-truststore.p12`) được tính từ thư mục chứa file settings.
+So **IntelliJ uses your own account for the demo**, while **the submitted build uses its own `application.properties`** placed next to the jar, with an Aiven account created just for the submission. The two files never interfere.
+A relative truststore path (e.g. `aiven-truststore.p12`) is resolved from the folder that contains the settings file.
 
-### Tạo bản nộp
+### Building the submission
 
-1. IntelliJ → tab **Maven** → *Lifecycle* → `clean`, rồi `package`.
-2. Chạy `make_submission.bat` (macOS/Linux: `./make_submission.sh`) → tạo thư mục `submission/` (đã nằm trong `.gitignore`).
-3. Trong `submission/`: điền `application.properties` (tài khoản nộp bài), chép `aiven-truststore.p12` vào.
-4. Thử: `check_connection.bat` → `setup_demo.bat` → `run.bat`. Nén thư mục `submission/` để nộp.
+1. IntelliJ → **Maven** tab → *Lifecycle* → `clean`, then `package`.
+2. Run `make_submission.bat` (macOS/Linux: `./make_submission.sh`) → creates the `submission/` folder (already in `.gitignore`).
+3. In `submission/`: fill in `application.properties` (the submission account) and copy `aiven-truststore.p12` into it.
+4. Test: `check_connection.bat` → `setup_demo.bat` → `run.bat`. Zip the `submission/` folder to submit.
 
-| File trong `submission/` | Làm gì |
+| File in `submission/` | What it does |
 |---|---|
-| `run.bat` | Mở app |
-| `check_connection.bat` | Kiểm tra kết nối: file settings, DB, số bảng, giờ DB |
-| `setup_demo.bat` | **Mở phiên demo**: tạo lại các exam `DEMO - ...` (`DEMO - Open now` mở 180 phút) |
-| `cleanup_demo.bat` | **Đóng phiên demo**: xóa các exam `DEMO - ...` và mọi bài làm trên đó |
-| `add_sample_data.bat` / `cleanup_sample_data.bat` | Thêm / gỡ dữ liệu mẫu 14 khóa |
+| `run.bat` | Opens the app |
+| `check_connection.bat` | Tests the connection: settings file, database, table count, database clock |
+| `setup_demo.bat` | **Starts a demo session**: recreates the `DEMO - ...` exams (`DEMO - Open now` stays open 180 minutes) |
+| `cleanup_demo.bat` | **Ends a demo session**: removes the `DEMO - ...` exams and every attempt on them |
+| `add_sample_data.bat` / `cleanup_sample_data.bat` | Adds / removes the sample data for 14 courses |
 | `app.sh` | macOS/Linux: `./app.sh --setup-demo` … |
-| `HUONG_DAN.txt` | Hướng dẫn ngắn cho người chấm |
+| `RUN_GUIDE.txt` | Short guide for the grader |
 
-Các lệnh này chạy đúng các file trong `database/demo/` (đã đóng vào jar), **không cần Workbench**.
-Mỗi file chạy trong 1 transaction: lỗi ở đâu thì rollback, không để dữ liệu dở dang.
-Tài khoản nộp bài cần quyền `SELECT, INSERT, UPDATE, DELETE` trên schema `Online_Examination`.
+These commands run exactly the files in `database/demo/` (packed into the jar), **no Workbench needed**.
+Each file runs in one transaction: if anything fails it is rolled back, so no half-done data is left behind.
+The submission account needs `SELECT, INSERT, UPDATE, DELETE` on the `Online_Examination` schema.
 
-Từ IntelliJ cũng chạy được: *Run → Edit Configurations → Main → Program arguments* = `--setup-demo`
-(hoặc `--check`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`).
+They also work from IntelliJ: *Run → Edit Configurations → Main → Program arguments* = `--setup-demo`
+(or `--check`, `--cleanup-demo`, `--add-sample-data`, `--cleanup-sample-data`).
 
-### Test end-to-end
+### End-to-end test
 
-`EndToEndTest` **ghi dữ liệu** → chỉ chạy trên **MySQL cục bộ**, KHÔNG chạy lên Aiven:
-dựng DB local bằng `02` + `05` + `demo/03_demo_seed.sql`, tạo `src/test/resources/application.properties`
-trỏ tới `localhost`, rồi `mvn test -Dit.db=local`.
+`EndToEndTest` **writes data** → run it only on a **local MySQL**, NEVER on Aiven:
+build a local database with `02` + `05` + `demo/03_demo_seed.sql`, create `src/test/resources/application.properties`
+pointing to `localhost`, then run `mvn test -Dit.db=local`.
 
-## 11. Cấu trúc project
+## 11. Project structure
 
 ```
 src/main/java/org/example/
-├── Main.java                 # điểm chạy app
+├── Main.java                 # app entry point (+ command-line commands, section 10)
 ├── ui/                       # Swing: LoginFrame, StudentDashBoard, InstructorDashBoard, panel/, components/
-├── Service/                  # nghiệp vụ: AuthServiceImpl, StudentServiceImpl, InstructorServiceImpl, Db (giờ DB)
-├── DAO/jdbc/                 # truy vấn SQL: AttemptDAO, ExamDAO, ReportDAO, StudentDAO, ...
-├── session/                  # Session (người dùng đang đăng nhập)
-└── util/                     # DatabaseConnection (HikariCP), PasswordHasher
+├── Service/                  # business logic: AuthServiceImpl, StudentServiceImpl, InstructorServiceImpl, Db (database clock)
+├── DAO/jdbc/                 # SQL queries: AttemptDAO, ExamDAO, ReportDAO, StudentDAO, ...
+├── DAO/, MODEL/              # earlier DAO layer, still used by StudentResultService
+├── session/                  # Session (the signed-in user)
+└── util/                     # DatabaseConnection (HikariCP), PasswordHasher, SqlScriptRunner
 src/main/Sources/             # application.properties(.example)
-packaging/                    # các file .bat cho bản nộp (make_submission chép vào submission/)
-src/test/java/                # unit test + it/EndToEndTest
-database/                     # các file SQL (mục 9)
+packaging/                    # .bat files for the submission (make_submission copies them into submission/)
+src/test/java/                # unit tests + it/EndToEndTest
+database/                     # SQL files (section 9)
 docs/                         # DEMO_SCRIPT, normalization, design, ui
 ```
 
-Lịch sử thay đổi theo từng bước: [UPDATE_NOTES.md](UPDATE_NOTES.md).
+Change history, step by step: [UPDATE_NOTES.md](UPDATE_NOTES.md).
 
 ---
 

@@ -1,49 +1,52 @@
-# Hướng dẫn tạo `.mwb` mới, chạy SQL chuẩn hóa & kiểm thử trên MySQL Workbench 8.0 CE
+# Creating a new `.mwb`, running the normalized SQL & testing in MySQL Workbench 8.0 CE
 
-Thư mục này chứa bộ script SQL chuẩn hóa hoàn chỉnh cho thiết kế **21 bảng BCNF** (xem tóm tắt quy tắc và ánh xạ cho Java/Query tại [docs/normalization/README.md](../../docs/normalization/README.md)).
+This folder contains the complete normalized SQL scripts for the **21-table BCNF** design (see the summary of rules and the mapping for Java/Query in [docs/normalization/README.md](../../docs/normalization/README.md)).
 
 ---
 
-## Danh sách file trong gói
+## Files in this folder
 
-| File | Mục đích sử dụng |
+| File | Purpose |
 | --- | --- |
-| `01_schema_ddl_for_mwb_import.sql` | **DDL thuần túy (chỉ CREATE TABLE + Constraints + Indexes)**, không có `DELIMITER`/Trigger/Seed — dùng để import vào MySQL Workbench sinh file `.mwb` sạch không lỗi cú pháp. |
-| `02_online_examination_full_submission.sql` | **Script nộp bài hoàn chỉnh (Deliverable D5)**: `DROP/CREATE DATABASE Online_Examination`, 21 bảng, 28 FK (đủ `ON DELETE`/`ON UPDATE`), `UNIQUE`, `CHECK`, 5 Indexes, 3 Views, Triggers bảo vệ 2 chiều, 5 Stored Procedures ACID và dữ liệu mẫu **`>= 15` dòng trên cả 21/21 bảng**. |
-| `03_verify_constraints_and_acceptance_N01_N24.sql` | Bộ test tự động kiểm tra số dòng `>= 15`, 5 câu Query bắt buộc của Topic 20, và 39 ca kiểm chứng `N01–N24` + `BR-29/37/41/42/45/49` (duplicate PK, FK sai, CHECK sai, Trigger vòng tròn, sai kỳ thi, freeze lịch sử, chấm câu trống/tab/CRLF...). |
-| `04_migration_from_old_20tables_to_21tables.sql` | Chuyển **tại chỗ** DB `Online_Examination` đang ở schema 20 bảng sang 21 bảng, giữ dữ liệu, không cần database thứ hai: đổi tên bảng cũ thành `OLD_*`, tạo 21 bảng mới, chép dữ liệu trong 1 transaction (kiểm tra trước/sau, lỗi thì `ROLLBACK` và dừng, bảng `OLD_*` còn nguyên), tạo view/trigger/procedure, cuối cùng xóa `OLD_*` -> còn đúng 21 bảng. |
+| `01_schema_ddl_for_mwb_import.sql` | **Pure DDL (only CREATE TABLE + constraints + indexes)**, no `DELIMITER`/triggers/seed — used to import into MySQL Workbench and generate a clean `.mwb` file without syntax errors. |
+| `02_online_examination_full_submission.sql` | **Complete submission script (Deliverable D5)**: `DROP/CREATE DATABASE Online_Examination`, 21 tables, 28 FKs (all with `ON DELETE`/`ON UPDATE`), `UNIQUE`, `CHECK`, 5 indexes, 3 views, two-way protection triggers, 5 ACID stored procedures and sample data with **`>= 15` rows in all 21/21 tables**. |
+| `03_verify_constraints_and_acceptance_N01_N24.sql` | Automatic tests: row counts `>= 15`, the 5 required queries of Topic 20, and 39 checks `N01–N24` + `BR-29/37/41/42/45/49` (duplicate PK, wrong FK, failed CHECK, circular trigger, wrong exam, history freeze, grading of blank/tab/CRLF answers...). |
+| `05_upgrade_password_hashes.sql` | Run right after `02`: turns the seed passwords into PBKDF2 hashes (`Inst@123` / `Stu@123`). Safe to re-run. |
 
-> **Kết quả kiểm chứng độc lập trên MySQL 8.4.11:** `01` chạy sạch (exit code `0`); `02` chạy lại **2 lần liên tiếp** không lỗi với `>= 15` dòng trên cả `21/21` bảng; `03` đạt `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`; `04` qua `8` tiền kiểm + `4` đối soát lossless và tự `ROLLBACK` (`0` dòng ghi) khi xung đột `Marks`.
+> The in-place migration script `04_migration_from_old_20tables_to_21tables.sql` was used once to move the shared
+> Aiven database from the old 20-table schema to 21 tables, and has since been removed from the project.
 
----
-
-## 1. Cách tạo file `.mwb` mới & xuất ảnh Schema Diagram trong MySQL Workbench
-
-### Cách A — Import trực tiếp từ file `01_schema_ddl_for_mwb_import.sql` (Nhanh nhất, không cần kết nối DB)
-1. Mở **MySQL Workbench 8.0 CE**.
-2. Chọn **File → Import → Reverse Engineer MySQL Create Script...**
-3. Trỏ tới `01_schema_ddl_for_mwb_import.sql`, tích chọn **`Place imported objects on a diagram`**, rồi bấm **Execute → Next → Finish**.
-4. Vào menu **Arrange → Autolayout** (chỉnh gọn vị trí 21 bảng, kéo các đường nối tránh cắt ngang chữ).
-5. Bấm **File → Save Model As...** và lưu thành `tables_script_v2_21tables.mwb`.
-6. Bấm **File → Export → Export as PNG...** để xuất ảnh Schema Diagram mới (hiện đủ `Quest_ID`, `User_ID`, `Semester`, `PaperKey`, `exam_question_marks`, `paper_question`) đưa vào Final Report.
-
-### Cách B — Reverse Engineer từ MySQL Server sau khi đã chạy file `02` (Lấy đủ cả Views, Triggers, Procedures)
-1. Mở kết nối MySQL Server (local hoặc schema test tách riêng) trong Workbench, chạy toàn bộ file `02_online_examination_full_submission.sql`.
-2. Trên thanh menu chính, chọn **Database → Reverse Engineer...** (`Ctrl+R`).
-3. Chọn kết nối → chọn schema **`Online_Examination`** → tích chọn cả Tables, Views, Routines, Triggers → **Execute → Finish**.
-4. Lưu file `.mwb` và xuất ảnh sơ đồ quan hệ.
+> **Independent verification on MySQL 8.4.11:** `01` runs cleanly (exit code `0`); `02` runs **twice in a row** without errors, with `>= 15` rows in all `21/21` tables; `03` returns `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`.
 
 ---
 
-## 2. Cách chạy & kiểm chứng lại script D5 (Assignment Mục 2.3)
+## 1. Creating a new `.mwb` file & exporting the schema diagram in MySQL Workbench
 
-1. Mở `02_online_examination_full_submission.sql` trong MySQL Workbench (hoặc CLI `mysql`), bấm **Execute All (`Ctrl+Shift+Enter`)** lần 1.
-2. Bấm **Execute All** tiếp **lần 2 liên tiếp** — script phải chạy sạch không cần sửa tay bất kỳ dòng nào.
-3. Mở và chạy `03_verify_constraints_and_acceptance_N01_N24.sql` để xem bảng tổng hợp số dòng từng bảng, kết quả 5 Query Topic 20 và `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0` — chụp ảnh màn hình này để kẹp vào Chương 4 Final Report.
+### Method A — Import directly from `01_schema_ddl_for_mwb_import.sql` (fastest, no database connection needed)
+1. Open **MySQL Workbench 8.0 CE**.
+2. Choose **File → Import → Reverse Engineer MySQL Create Script...**
+3. Select `01_schema_ddl_for_mwb_import.sql`, tick **`Place imported objects on a diagram`**, then click **Execute → Next → Finish**.
+4. Use **Arrange → Autolayout** (tidy the positions of the 21 tables, drag the connectors so they do not cross the text).
+5. Click **File → Save Model As...** and save as `tables_script_v2_21tables.mwb`.
+6. Click **File → Export → Export as PNG...** to export the new schema diagram (showing `Quest_ID`, `User_ID`, `Semester`, `PaperKey`, `exam_question_marks`, `paper_question`) for the Final Report.
+
+### Method B — Reverse Engineer from the MySQL server after running `02` (also gets views, triggers, procedures)
+1. Open a MySQL server connection in Workbench (local, or a separate test schema) and run the whole `02_online_examination_full_submission.sql`.
+2. From the main menu, choose **Database → Reverse Engineer...** (`Ctrl+R`).
+3. Pick the connection → select the schema **`Online_Examination`** → tick Tables, Views, Routines and Triggers → **Execute → Finish**.
+4. Save the `.mwb` file and export the relational diagram.
 
 ---
 
-## 3. Lưu ý an toàn khi đụng tới Aiven DB dùng chung
+## 2. Running & re-checking the D5 script (Assignment section 2.3)
 
-* **KHÔNG chạy** `02_online_examination_full_submission.sql` (có lệnh `DROP DATABASE`) lên server Aiven nếu database chung đang chứa dữ liệu test của nhóm Java/Query mà chưa sao lưu.
-* Backup trước (Workbench -> Server -> Data Export), rồi chạy `04` thẳng trên `Online_Examination` đang ở schema 20 bảng; chạy xong còn đúng 21 bảng.
+1. Open `02_online_examination_full_submission.sql` in MySQL Workbench (or the `mysql` CLI) and click **Execute All (`Ctrl+Shift+Enter`)** once.
+2. Click **Execute All** again — **a second time in a row** — the script must run cleanly without editing any line by hand.
+3. Open and run `03_verify_constraints_and_acceptance_N01_N24.sql` to see the row count of every table, the results of the 5 Topic 20 queries and `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0` — take a screenshot of this for Chapter 4 of the Final Report.
+
+---
+
+## 3. Safety notes for the shared Aiven database
+
+* **DO NOT run** `02_online_examination_full_submission.sql` (it contains `DROP DATABASE`) on the Aiven server while the shared database holds the group's data, unless it has been backed up first.
+* Back up first (Workbench → Server → Data Export). For a demo, the files in `database/demo/` are enough: they only touch their own rows.

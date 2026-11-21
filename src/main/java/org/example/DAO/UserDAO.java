@@ -1,7 +1,7 @@
 package org.example.DAO;
 
 import org.example.MODEL.User;
-import org.example.util.DatabaseConnection; // Import từ util
+import org.example.util.DatabaseConnection;
 import org.example.util.PasswordHasher;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

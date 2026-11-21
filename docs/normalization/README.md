@@ -1,63 +1,62 @@
-# Tóm tắt Normalization — Schema 21 bảng BCNF (Nhóm 06 / Topic 20)
+# Normalization summary — 21-table BCNF schema (Group 06 / Topic 20)
 
-* **Trạng thái & Phạm vi (20/11/2026):** Đây là gói đóng góp SQL và tóm tắt kỹ thuật đã kiểm chứng trên MySQL `8.4.11` cô lập cho phương án đề xuất **21 bảng BCNF** (`#7B` + `#2B1`). Tài liệu phân tích chi tiết (bảng 21 quan hệ & FD, chứng minh 1NF → BCNF, ví dụ dị thường và 50 quy tắc `BR-01`–`BR-50` cho Chương 3 Final Report) được lưu riêng ở bộ file Word của nhóm để giữ repo gọn nhẹ cho code Java và SQL.
-
----
-
-## 1. Tóm tắt kiến trúc 21 bảng BCNF (`#7B` + `#2B1`)
-
-* **Quy mô đối tượng DDL & ràng buộc:** `21` bảng cơ sở (tất cả đạt BCNF), `21` PK, `28` FK (toàn bộ dùng `ON UPDATE RESTRICT`; `27` FK dùng `ON DELETE RESTRICT`, riêng `user_phone.User_ID` dùng `ON DELETE CASCADE`), `4` `UNIQUE`, `28` `CHECK`, `5` Index, `3` View (`v_paper_total_marks`, `v_attempt_scores`, `v_representative_attempts`), `28` Trigger bảo vệ hai chiều và `5` Stored Procedure ACID (`sp_create_student`, `sp_create_instructor`, `sp_start_attempt`, `sp_submit_mcq_answer`, `sp_finalize_attempt`).
-* **5 thay đổi chính so với bản 20 bảng cũ (`script.sql`):**
-  1. **`select_table`:** Đổi PK thành `(Quest_ID, Attempt_no, RegisID)` (một lựa chọn mỗi câu MCQ trong một lượt thi) và dùng 2 composite FK tới `options(Option_no, Quest_ID)` và `answer(Quest_ID, Attempt_no, RegisID)`.
-  2. **`paper` & `attempt`:** Bổ sung khóa đại diện `PaperKey` (`AUTO_INCREMENT`, `UNIQUE(Exam_ID, PaperID)`), bỏ cột dư `attempt.Exam_ID` để triệt tiêu phụ thuộc hàm bộ phận `RegisID -> Exam_ID`, kèm trigger bảo đảm `paper.Exam_ID = registration.Exam_ID`.
-  3. **Tách `contains` thành `exam_question_marks` + `paper_question`:** `exam_question_marks(Exam_ID, Quest_ID, Marks)` cố định điểm tối đa theo từng kỳ thi (`#7B`), còn `paper_question(PaperKey, Quest_ID, QuestionOrder)` giữ cấu trúc đề và thứ tự câu (`UNIQUE(PaperKey, QuestionOrder)`).
-  4. **`teach`:** PK 3 cột `(User_ID, Course_ID, Semester)` với `CHECK` phân biệt hoa thường `^20[0-9]{2}-(S[12]|SU)$`.
-  5. **Chuẩn hóa tên cột & trạng thái làm bài / chờ chấm:** Thống nhất `Password_hash`, `Prerequisite_ID`, `Advanced_ID`; cho phép `attempt.EndTime`, `answer.AnswerText`, `answer.MarkAwarded` mang giá trị `NULL` khi đang làm hoặc chờ chấm. Khi gọi `sp_finalize_attempt`, mọi câu bỏ trống hoặc tự luận chỉ chứa khoảng trắng (`[[:space:]]`) đều được chấm `0.00`; `v_attempt_scores` chỉ công bố `Total_Score`, `ScorePercent` và `IsPassed` khi `IsFullyGraded = 1`.
+* **Status & scope (20/11/2026):** This is the SQL contribution and technical summary, verified on an isolated MySQL `8.4.11`, for the proposed **21-table BCNF** design (`#7B` + `#2B1`). The detailed analysis (the 21 relations & FDs, the 1NF → BCNF proof, anomaly examples and the 50 rules `BR-01`–`BR-50` for Chapter 3 of the Final Report) is kept in the group's Word documents, to keep the repository focused on Java and SQL code.
 
 ---
 
-## 2. Hướng dẫn sử dụng bộ script trong [`database/normalized_21tables/`](../../database/normalized_21tables/)
+## 1. The 21-table BCNF architecture (`#7B` + `#2B1`)
 
-| Nhóm / Mục đích | File cần dùng | Ghi chú sử dụng |
+* **DDL objects & constraints:** `21` base tables (all in BCNF), `21` PKs, `28` FKs (all `ON UPDATE RESTRICT`; `27` with `ON DELETE RESTRICT`, only `user_phone.User_ID` with `ON DELETE CASCADE`), `4` `UNIQUE`, `28` `CHECK`, `5` indexes, `3` views (`v_paper_total_marks`, `v_attempt_scores`, `v_representative_attempts`), `28` two-way protection triggers and `5` ACID stored procedures (`sp_create_student`, `sp_create_instructor`, `sp_start_attempt`, `sp_submit_mcq_answer`, `sp_finalize_attempt`).
+* **5 main changes from the old 20-table version (`script.sql`):**
+  1. **`select_table`:** PK changed to `(Quest_ID, Attempt_no, RegisID)` (one choice per MCQ in one attempt), with 2 composite FKs to `options(Option_no, Quest_ID)` and `answer(Quest_ID, Attempt_no, RegisID)`.
+  2. **`paper` & `attempt`:** a surrogate key `PaperKey` (`AUTO_INCREMENT`, `UNIQUE(Exam_ID, PaperID)`) was added and the redundant column `attempt.Exam_ID` removed, eliminating the partial dependency `RegisID -> Exam_ID`; a trigger ensures `paper.Exam_ID = registration.Exam_ID`.
+  3. **`contains` split into `exam_question_marks` + `paper_question`:** `exam_question_marks(Exam_ID, Quest_ID, Marks)` fixes the maximum marks per exam (`#7B`), while `paper_question(PaperKey, Quest_ID, QuestionOrder)` holds the paper structure and question order (`UNIQUE(PaperKey, QuestionOrder)`).
+  4. **`teach`:** a 3-column PK `(User_ID, Course_ID, Semester)` with a case-sensitive `CHECK` `^20[0-9]{2}-(S[12]|SU)$`.
+  5. **Consistent column names & in-progress / waiting-for-grading states:** `Password_hash`, `Prerequisite_ID`, `Advanced_ID` everywhere; `attempt.EndTime`, `answer.AnswerText` and `answer.MarkAwarded` may be `NULL` while an attempt is in progress or waiting for grading. When `sp_finalize_attempt` runs, every blank answer or short answer containing only whitespace (`[[:space:]]`) gets `0.00`; `v_attempt_scores` only publishes `Total_Score`, `ScorePercent` and `IsPassed` when `IsFullyGraded = 1`.
+
+---
+
+## 2. Using the scripts in [`database/normalized_21tables/`](../../database/normalized_21tables/)
+
+| Group / Purpose | File | Notes |
 | --- | --- | --- |
-| **Nộp bài D5 / Dựng DB mới** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Dùng `Online_Examination` cho cả `DROP`, `CREATE` và `USE`, khớp `application.properties.example`. Bộ seed có ít nhất 15 dòng mỗi bảng. |
-| **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần tạo schema `Online_Examination` (không chứa `DELIMITER`/Trigger) để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
-| **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy trực tiếp ngay sau `02` trên `Online_Examination` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 ca nghiệm thu. |
-| **Team Java DAO / Service** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Gọi trực tiếp 3 Views tính điểm/xếp hạng và 5 Stored Procedures ACID; không tự tính lại logic chọn đáp án hoặc chốt bài ở tầng UI. |
-| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển **tại chỗ** `Online_Examination` (20 bảng) sang 21 bảng, giữ dữ liệu, không cần database thứ hai; tự `ROLLBACK` và dừng nếu kiểm tra sai lệch; chạy xong còn đúng 21 bảng. |
+| **D5 submission / build a new database** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Uses `Online_Examination` for `DROP`, `CREATE` and `USE`, matching `application.properties.example`. The seed has at least 15 rows per table. Run [`05_upgrade_password_hashes.sql`](../../database/normalized_21tables/05_upgrade_password_hashes.sql) right after it. |
+| **Build the `.mwb` in Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | Pure DDL creating the `Online_Examination` schema (no `DELIMITER`/triggers) for *Reverse Engineer MySQL Create Script*, giving a `.mwb` file and diagram without syntax errors. |
+| **Query team & report Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Run right after `02` on `Online_Examination` to get the results of the 5 Topic 20 queries, the row counts and the 39 acceptance checks. |
+| **Java DAO / Service team** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Use the 3 scoring/ranking views; the app keeps the attempt logic in Java (see [UPDATE_NOTES.md](../../UPDATE_NOTES.md), Step 4) with the triggers as the last line of defence. |
 
-### Schema MySQL
+### MySQL schema
 
-Cả bốn script (`01`–`04`) dùng schema đích **`Online_Examination`**, khớp `application.properties.example`. Script `04` chuyển **tại chỗ** DB `Online_Examination` đang ở schema 20 bảng sang 21 bảng (đổi tên bảng cũ thành `OLD_*`, tạo bảng mới, chép dữ liệu), không cần database thứ hai.
+All scripts use the target schema **`Online_Examination`**, matching `application.properties.example`.
 
-Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên Windows với `lower_case_table_names = 1`. Trên máy chủ có `lower_case_table_names = 0`, các câu lệnh dùng đúng tên `Online_Examination`. Chế độ này chưa được chạy thử.
+The results below come from an isolated MySQL 8.4.11 on Windows with `lower_case_table_names = 1`. The scripts have also
+been run on MySQL 8.0 on Linux with `lower_case_table_names = 0` (case-sensitive, like Aiven): table names are UPPERCASE everywhere.
 
-`01` và `02` xóa rồi tạo lại schema `Online_Examination`. Chạy hai script này trong môi trường kiểm thử riêng.
-
----
-
-## 3. Trạng thái kiểm chứng & Đầu việc chờ nhóm chốt
-
-* **Đã kiểm chứng thực tế trên MySQL `8.4.11` cô lập:**
-  * `01_schema_ddl_for_mwb_import.sql` chạy sạch (`exit code 0`).
-  * `02_online_examination_full_submission.sql` chạy sạch **2 lần liên tiếp** (`exit code 0`), cả `21/21` bảng có từ `15` đến `116` dòng.
-  * `03_verify_constraints_and_acceptance_N01_N24.sql` trả đủ 5 Query Topic 20 và **`ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`**.
-  * `04_migration_from_old_20tables_to_21tables.sql` vượt qua `8` chỉ số tiền kiểm + `4` chỉ số đối soát lossless với dữ liệu sạch, đồng thời tự `ROLLBACK` (`0` dòng ghi) khi gặp xung đột `Marks` cùng kỳ thi hoặc sai lệch `QuestionOrder`.
-* **3 đầu việc còn chờ nhóm phối hợp chốt trước khi áp dụng lên cloud:**
-  1. Import `01_schema_ddl_for_mwb_import.sql` trên MySQL Workbench GUI để xuất file `.mwb` mới và ảnh sơ đồ quan hệ 21 bảng.
-  2. Kiểm tra dữ liệu thực tế trên Aiven để quyết định làm mới DB bằng `02` (mất dữ liệu cũ) hay chuyển tại chỗ bằng `04` (giữ dữ liệu).
-  3. Đồng bộ các lớp Java `DAO` / `MODEL` / `Service` trên `main` (hiện viết theo `OPTION C` / bảng 20 cột cũ như `paper_contains`, `paper_code`, `ANSWER.AnswerText` cho MCQ) sang schema 21 bảng khi nhóm thống nhất áp dụng.
+`01` and `02` drop and recreate the `Online_Examination` schema. Run them only in a separate test environment.
 
 ---
 
-## 4. Đối chiếu ký hiệu Cardinality trên EER (`erdplus_D.png`) với Business Rules
+## 3. Verification status
 
-Theo quy ước ERDPlus (ký hiệu đặt **cạnh thực thể X** biểu diễn có bao nhiêu X gắn với một thực thể ở đầu kia), đối chiếu `erdplus_D.png` hiện hành cần chỉnh 3 đầu cạnh phải của `Question` từ `|<` (`1..N`, bắt buộc `>= 1`) sang `o<` (`0..N`, có thể bằng `0` khi soạn thảo):
+* **Verified on an isolated MySQL `8.4.11`:**
+  * `01_schema_ddl_for_mwb_import.sql` runs cleanly (`exit code 0`).
+  * `02_online_examination_full_submission.sql` runs cleanly **twice in a row** (`exit code 0`); all `21/21` tables have between `15` and `116` rows.
+  * `03_verify_constraints_and_acceptance_N01_N24.sql` returns all 5 Topic 20 queries and **`ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`**.
+* **Tasks that were open when this summary was written, now done:**
+  1. Export a new `.mwb` file and the 21-table relational diagram → see [`docs/design/`](../design/).
+  2. Decide how to move the Aiven database to 21 tables → migrated in place, keeping the data.
+  3. Move the Java `DAO` / `MODEL` / `Service` classes to the 21-table schema → done (see [UPDATE_NOTES.md](../../UPDATE_NOTES.md), Steps 8–10).
 
-| Quan hệ | Đầu đang vẽ | Cần sửa thành | Business Rule căn cứ |
+---
+
+## 4. Checking the cardinality symbols on the EER (`erdplus_D.png`) against the business rules
+
+Following the ERDPlus convention (the symbol **next to entity X** shows how many X relate to one entity at the other end), the current `erdplus_D.png` needs 3 ends next to `Question` changed from `|<` (`1..N`, mandatory `>= 1`) to `o<` (`0..N`, may be `0` while authoring):
+
+| Relationship | Currently drawn | Should be | Business rule |
 | --- | --- | --- | --- |
-| `Has_ques` (`Topic` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-11:** Topic có thể tồn tại trước khi có câu hỏi đầu tiên (đầu cạnh `Topic` vẫn giữ `\|\|` theo **BR-15**). |
-| `Paper_Question` (`Paper` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-25, BR-28:** Đề được tạo trước rồi mới thêm câu; điều kiện có `>= 1` câu chỉ bắt buộc khi đề được giao cho `Attempt` (trigger `trg_attempt_bi_checks`). |
-| `Exam_Question_Marks` (`Examination` — `Question`) | `\|<` cạnh `Question` | `o<` | **BR-25:** Kỳ thi được lập trước khi gán câu hỏi và mức điểm tối đa. |
+| `Has_ques` (`Topic` — `Question`) | `\|<` next to `Question` | `o<` | **BR-11:** a topic can exist before its first question (the `Topic` end stays `\|\|` per **BR-15**). |
+| `Paper_Question` (`Paper` — `Question`) | `\|<` next to `Question` | `o<` | **BR-25, BR-28:** a paper is created before questions are added; having `>= 1` question is only required when the paper is assigned to an `Attempt` (trigger `trg_attempt_bi_checks`). |
+| `Exam_Question_Marks` (`Examination` — `Question`) | `\|<` next to `Question` | `o<` | **BR-25:** an exam is set up before questions and their maximum marks are assigned. |
 
-*Cùng nguyên tắc cho phép tồn tại trước khi gắn con lúc soạn dữ liệu (`Master v2` §3.1):* các đầu `o<` cũng áp dụng tương tự ở `Register` (cạnh `Registration`, **BR-31**), `Has_paper` (cạnh `Paper`, **BR-25**) và `Option_of` (cạnh `Options`, **BR-20** — bắt buộc `>= 2` option và `1` đáp án đúng được kiểm trước khi đưa MCQ vào đề). Các chỉnh sửa minimum cardinality (`1` → `0`) trên sơ đồ EER này **không làm thay đổi bất kỳ bảng, PK hay FK nào trong bộ DDL 21 bảng SQL**.
+*The same "may exist before its children while authoring" principle (`Master v2` §3.1)* applies to the `o<` ends of `Register` (next to `Registration`, **BR-31**), `Has_paper` (next to `Paper`, **BR-25**) and `Option_of` (next to `Options`, **BR-20** — `>= 2` options and `1` correct answer are checked before an MCQ is put on a paper). These minimum-cardinality changes (`1` → `0`) on the EER diagram **do not change any table, PK or FK in the 21-table SQL DDL**.
