@@ -87,7 +87,15 @@ public final class StatsDAO {
         return out;
     }
 
-    /** One row per finished attempt, ordered by RegisID then Attempt_no. */
+    /**
+     * Only fully graded attempts count in the statistics (same rule as v_attempt_scores.IsFullyGraded):
+     * an attempt with a short answer still waiting for manual grading would otherwise look too low.
+     */
+    private static final String FULLY_GRADED =
+            " AND NOT EXISTS (SELECT 1 FROM ANSWER pend WHERE pend.RegisID = a.RegisID " +
+            "  AND pend.Attempt_no = a.Attempt_no AND pend.MarkAwarded IS NULL) ";
+
+    /** One row per finished, fully graded attempt, ordered by RegisID then Attempt_no. */
     public static List<AttemptTotal> attemptTotals(Connection c, int courseId) throws SQLException {
         List<AttemptTotal> out = new ArrayList<>();
         try (PreparedStatement ps = c.prepareStatement(
@@ -101,6 +109,7 @@ public final class StatsDAO {
                 "LEFT JOIN ANSWER ans ON ans.Quest_ID = pq.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
                 "  AND ans.RegisID = a.RegisID " +
                 "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime IS NOT NULL " +
+                FULLY_GRADED + " " +
                 "GROUP BY a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID " +
                 "ORDER BY a.RegisID, a.Attempt_no")) {
             ps.setInt(1, courseId);
@@ -114,7 +123,7 @@ public final class StatsDAO {
         return out;
     }
 
-    /** One row per (finished attempt, question). */
+    /** One row per (finished, fully graded attempt, question). */
     public static List<QuestionMark> questionMarks(Connection c, int courseId) throws SQLException {
         List<QuestionMark> out = new ArrayList<>();
         try (PreparedStatement ps = c.prepareStatement(
@@ -129,7 +138,8 @@ public final class StatsDAO {
                 "JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
                 "LEFT JOIN ANSWER ans ON ans.Quest_ID = pq.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
                 "  AND ans.RegisID = a.RegisID " +
-                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime IS NOT NULL")) {
+                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime IS NOT NULL " +
+                FULLY_GRADED + "")) {
             ps.setInt(1, courseId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

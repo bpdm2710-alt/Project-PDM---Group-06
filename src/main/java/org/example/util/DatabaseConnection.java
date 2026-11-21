@@ -38,20 +38,14 @@ public final class DatabaseConnection {
         String username = PROPERTIES.getProperty("db.username");
         String password = PROPERTIES.getProperty("db.password", "");
 
-        System.setProperty(
-                "javax.net.ssl.trustStore",
-                PROPERTIES.getProperty("db.ssl.truststore")
-        );
-
-        System.setProperty(
-                "javax.net.ssl.trustStorePassword",
-                PROPERTIES.getProperty("db.ssl.truststore.password")
-        );
-
-        System.setProperty(
-                "javax.net.ssl.trustStoreType",
-                "PKCS12"
-        );
+        // Aiven needs the truststore (sslMode=VERIFY_CA); a local MySQL without SSL does not.
+        String trustStore = PROPERTIES.getProperty("db.ssl.truststore");
+        if (trustStore != null && !trustStore.isBlank()) {
+            System.setProperty("javax.net.ssl.trustStore", trustStore.trim());
+            System.setProperty("javax.net.ssl.trustStorePassword",
+                    PROPERTIES.getProperty("db.ssl.truststore.password", "").trim());
+            System.setProperty("javax.net.ssl.trustStoreType", "PKCS12");
+        }
 
         return DriverManager.getConnection(url, username, password);
     }

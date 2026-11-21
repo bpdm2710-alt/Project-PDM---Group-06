@@ -4,7 +4,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -137,23 +136,13 @@ public final class QuestionDAO {
         }
     }
 
+    /** Quest_ID = MAX + 1 (the schema has no AUTO_INCREMENT). */
     public static int insert(Connection c, String content, int difficulty, int topicId, int instructorId)
             throws SQLException {
-        try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO QUESTION (Content, Difficulty, Topic_ID, User_ID) VALUES (?, ?, ?, ?)",
-                Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, content);
-            ps.setInt(2, difficulty);
-            ps.setInt(3, topicId);
-            ps.setInt(4, instructorId);
-            ps.executeUpdate();
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (!keys.next()) {
-                    throw new SQLException("The question was inserted but no id was returned.");
-                }
-                return keys.getInt(1);
-            }
-        }
+        int id = Jdbc.nextId(c, "QUESTION", "Quest_ID");
+        Jdbc.exec(c, "INSERT INTO QUESTION (Quest_ID, Content, Difficulty, Topic_ID, User_ID) VALUES (?, ?, ?, ?, ?)",
+                id, content, difficulty, topicId, instructorId);
+        return id;
     }
 
     public static void update(Connection c, int questionId, String content, int difficulty, int topicId)

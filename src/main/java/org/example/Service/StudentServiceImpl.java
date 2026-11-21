@@ -26,7 +26,9 @@ import java.util.Set;
  *    full Duration from its own StartTime; registration closes at Exam_date (trigger rule);
  *  - an attempt is IN PROGRESS while ATTEMPT.EndTime IS NULL, submitted once EndTime is set;
  *  - MCQ is single-select (SELECT_TABLE holds the chosen option, ANSWER.AnswerText stays NULL);
- *    short answer gets full marks when it equals Answer_key (trim, ignore case), otherwise 0;
+ *    short answer (BR-42, same rule as sp_finalize_attempt): blank -> 0; equals Answer_key
+ *    (trim, ignore case) -> full marks; anything else -> MarkAwarded NULL = waiting for the
+ *    instructor (InstructorService.gradeAnswer); the result shows "grading" until then;
  *    grading happens when the attempt is submitted, unanswered questions get 0;
  *  - score = SUM(ANSWER.MarkAwarded), max = SUM(EXAM_QUESTION_MARKS.Marks) of the attempt's paper;
  *  - EXAMINATION.Pass_mark is a PERCENTAGE: passed = score / max * 100 >= Pass_mark;
@@ -448,9 +450,7 @@ public class StudentServiceImpl implements StudentService {
             throws SQLException {
         Map<Integer, BigDecimal> marks = new LinkedHashMap<>();
         for (AttemptDAO.GradeRow r : AttemptDAO.gradingRows(conn, regisId, attemptNo)) {
-            boolean ok = r.mcq() ? r.selectedOption() != null && r.selectedIsCorrect()
-                    : isCorrectText(r.text(), r.answerKey());
-            marks.put(r.questionId(), ok ? r.marks() : BigDecimal.ZERO);
+            marks.put(r.questionId(), autoMark(r)); // null = pending manual grading
         }
         AttemptDAO.writeMarks(conn, regisId, attemptNo, marks);
         AttemptDAO.close(conn, regisId, attemptNo, Timestamp.valueOf(endTime));
@@ -465,6 +465,17 @@ public class StudentServiceImpl implements StudentService {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /** Automatic mark of one question, or null when a short answer needs the instructor. */
+    static BigDecimal autoMark(AttemptDAO.GradeRow r) {
+        if (r.mcq()) {
+            return r.selectedOption() != null && r.selectedIsCorrect() ? r.marks() : BigDecimal.ZERO;
+        }
+        if (r.text() == null || r.text().isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        return isCorrectText(r.text(), r.answerKey()) ? r.marks() : null;
     }
 
     static boolean isCorrectText(String answer, String key) {

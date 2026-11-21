@@ -35,6 +35,7 @@ public final class StudentResultsTestRunner {
     public static void main(String[] args) {
         try {
             runSqlScript(SEED);
+            resetRegistration9001();   // the seed already has a finished attempt on RegisID 9001
             runTests();
         } catch (Exception e) {
             failed++;
@@ -83,9 +84,8 @@ public final class StudentResultsTestRunner {
         checkEquals("first attempt paper", 1, first.getPaperId());
         checkEquals("first attempt exam", 9001, first.getExamId());
         check("first attempt has start time", first.getStartTime() != null);
-        check("first attempt has placeholder end time",
-                first.getEndTime() != null
-                        && first.getEndTime().equals(first.getStartTime()));
+        check("first attempt has no end time yet (EndTime NULL = in progress)",
+                first.getEndTime() == null);
         check("first attempt is in progress", !first.isSubmitted());
 
         check("attempt lookup works", SERVICE.getAttempt(9001, 1) != null);
@@ -101,7 +101,8 @@ public final class StudentResultsTestRunner {
                 () -> SERVICE.saveAnswer(9001, 1, 9001, null, 99));
 
         Answer q1 = SERVICE.saveAnswer(9001, 1, 9001, null, 1);
-        checkEquals("MCQ answer stored as option text", "1", q1.getAnswerText());
+        check("MCQ answer: AnswerText NULL, option in SELECT_TABLE",
+                q1.getAnswerText() == null && Integer.valueOf(1).equals(q1.getSelectedOptionNo()));
         SERVICE.saveAnswer(9001, 1, 9001, null, 1);
         checkEquals("duplicate answer does not add a row",
                 1, SERVICE.listAnswers(9001, 1).size());
@@ -130,7 +131,7 @@ public final class StudentResultsTestRunner {
         List<Answer> afterSubmit = SERVICE.listAnswers(9001, 1);
         checkEquals("blank question materialized", 4, afterSubmit.size());
         Answer q4 = find(afterSubmit, 9004);
-        check("blank answer text", q4 != null && "".equals(q4.getAnswerText()));
+        check("blank answer text is NULL", q4 != null && q4.getAnswerText() == null);
         checkBigDecimal("blank mark", "0.00",
                 q4 == null ? null : q4.getMarkAwarded());
         checkBigDecimal("Q1 mark", "5.00", mark(afterSubmit, 9001));
@@ -182,6 +183,20 @@ public final class StudentResultsTestRunner {
         checkBigDecimal("summary best percentage", "75.00",
                 summary.bestPercentage());
         checkEquals("summary passed count", 1, summary.passedCount());
+    }
+
+    /** Removes the attempts the seed created on RegisID 9001 so the scenario starts from attempt 1. */
+    private static void resetRegistration9001() throws Exception {
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            for (String sql : new String[]{
+                    "DELETE FROM SELECT_TABLE WHERE RegisID = 9001",
+                    "DELETE FROM ANSWER WHERE RegisID = 9001",
+                    "DELETE FROM ATTEMPT WHERE RegisID = 9001"}) {
+                try (PreparedStatement statement = conn.prepareStatement(sql)) {
+                    statement.execute();
+                }
+            }
+        }
     }
 
     private static void runSqlScript(Path path) throws Exception {

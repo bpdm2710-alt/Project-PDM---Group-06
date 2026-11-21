@@ -5,8 +5,7 @@
 -- Schema Design: 21 Normalized Relations (All in BCNF; Business Rules Master v2 BR-01..BR-50)
 -- Naming convention: ALL TABLE names are UPPER CASE (MySQL on Linux/Aiven is case-sensitive,
 --   lower_case_table_names=0). Column, view, trigger and procedure names keep their own case.
--- Revision: AUTO_INCREMENT on USER/COURSE/TOPIC/QUESTION/EXAMINATION/REGISTRATION ids (app inserts rely on it);
---           + EXAMINATION.Status (DRAFT/PUBLISHED), Exam_date NULLable (= not scheduled yet).
+-- Revision: + EXAMINATION.Status (DRAFT/PUBLISHED), Exam_date NULLable (= not scheduled yet).
 -- ============================================================================
 
 DROP DATABASE IF EXISTS `Online_Examination`;
@@ -19,7 +18,7 @@ USE `Online_Examination`;
 -- 1. USER (Superclass; Email is an enforced alternate candidate key)
 -- ----------------------------------------------------------------------------
 CREATE TABLE `USER` (
-  `User_ID`       INT          NOT NULL AUTO_INCREMENT,
+  `User_ID`       INT          NOT NULL,
   `FirstName`     VARCHAR(50)  NOT NULL,
   `LastName`      VARCHAR(50)  NOT NULL,
   `DOB`           DATE         NOT NULL,
@@ -76,7 +75,7 @@ CREATE TABLE `INSTRUCTOR` (
 -- 5. COURSE
 -- ----------------------------------------------------------------------------
 CREATE TABLE `COURSE` (
-  `Course_ID` INT          NOT NULL AUTO_INCREMENT,
+  `Course_ID` INT          NOT NULL,
   `CName`     VARCHAR(100) NOT NULL,
   `Credits`   INT          NOT NULL,
   CONSTRAINT `pk_course` PRIMARY KEY (`Course_ID`),
@@ -104,7 +103,7 @@ CREATE TABLE `REQUIRES` (
 -- 7. TOPIC
 -- ----------------------------------------------------------------------------
 CREATE TABLE `TOPIC` (
-  `Topic_ID` INT  NOT NULL AUTO_INCREMENT,
+  `Topic_ID` INT  NOT NULL,
   `Content`  TEXT NOT NULL,
   CONSTRAINT `pk_topic` PRIMARY KEY (`Topic_ID`),
   CONSTRAINT `chk_topic_content_nonempty` CHECK (CHAR_LENGTH(TRIM(`Content`)) > 0)
@@ -146,7 +145,7 @@ CREATE TABLE `TEACH` (
 -- 10. QUESTION (Superclass; Topic_ID and authoring Instructor User_ID)
 -- ----------------------------------------------------------------------------
 CREATE TABLE `QUESTION` (
-  `Quest_ID`   INT  NOT NULL AUTO_INCREMENT,
+  `Quest_ID`   INT  NOT NULL,
   `Content`    TEXT NOT NULL,
   `Difficulty` INT  NOT NULL,
   `Topic_ID`   INT  NOT NULL,
@@ -207,7 +206,7 @@ CREATE TABLE `OPTIONS` (
 -- 14. EXAMINATION (Pass_mark = percentage 0.00-100.00; Status DRAFT/PUBLISHED; Exam_date NULL = not scheduled)
 -- ----------------------------------------------------------------------------
 CREATE TABLE `EXAMINATION` (
-  `Exam_ID`      INT           NOT NULL AUTO_INCREMENT,
+  `Exam_ID`      INT           NOT NULL,
   `Title`        VARCHAR(150)  NOT NULL,
   `Exam_date`    DATETIME      NULL DEFAULT NULL,
   `Duration`     INT           NOT NULL,
@@ -280,7 +279,7 @@ CREATE TABLE `PAPER_QUESTION` (
 -- 18. REGISTRATION (One registration per student-examination pair)
 -- ----------------------------------------------------------------------------
 CREATE TABLE `REGISTRATION` (
-  `RegisID`   INT      NOT NULL AUTO_INCREMENT,
+  `RegisID`   INT      NOT NULL,
   `RegisDate` DATETIME NOT NULL,
   `User_ID`   INT      NOT NULL,
   `Exam_ID`   INT      NOT NULL,
@@ -450,16 +449,6 @@ SELECT
   `StartTime`, `EndTime`, `Pass_mark`, `PaperTotalMarks`, `Total_Score`, `ScorePercent`, `IsPassed`
 FROM ranked
 WHERE rn = 1;
-
-
--- Shared view from PDMProjectQuery.sql: average awarded mark per topic.
-CREATE VIEW `vw_AverageScoreByTopic` AS
-SELECT T.`Topic_ID`, T.`Content` AS `Topic_Name`, AVG(A.`MarkAwarded`) AS `Average_Score`
-FROM `TOPIC` T
-JOIN `QUESTION` Q ON T.`Topic_ID` = Q.`Topic_ID`
-JOIN `ANSWER` A   ON Q.`Quest_ID` = A.`Quest_ID`
-WHERE A.`MarkAwarded` IS NOT NULL
-GROUP BY T.`Topic_ID`, T.`Content`;
 
 -- ============================================================================
 -- CROSS-TABLE TRIGGERS & HISTORICAL FREEZE GUARDS

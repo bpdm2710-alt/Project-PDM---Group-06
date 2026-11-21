@@ -12,7 +12,7 @@ import static org.example.ui.components.UITheme.*;
 
 /**
  * One exam as a card with the right action for its state. Shared by the
- * Courses dialog and the My exams page so both behave identically.
+ * Courses dialog and the exams page so both behave identically.
  */
 public final class ExamCardView {
 

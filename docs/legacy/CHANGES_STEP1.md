@@ -1,3 +1,5 @@
+> **LỖI THỜI (legacy):** tài liệu này mô tả trạng thái cũ (schema 20 bảng, mật khẩu thô, `EndTime = StartTime`, Pass_mark điểm thô). Xem `UPDATE_NOTES.md` ở thư mục gốc để biết trạng thái hiện tại.
+
 # Bước 1 – Sửa lỗi "lượt làm bài quá hạn bị rollback"
 
 Cách dùng: chép đè thư mục `src/` trong gói này lên `src/` của project (cùng đường dẫn).

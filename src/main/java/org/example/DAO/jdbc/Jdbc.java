@@ -12,7 +12,7 @@ final class Jdbc {
     private Jdbc() {
     }
 
-    /** First column of the first row as int, or 0 when there is no row. */
+    /** First column of the first row as int, or 0 when there is no row (ids start at 1, so 0 = not found). */
     static int scalar(Connection c, String sql, Object... params) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             bind(ps, params, 0);
@@ -34,6 +34,16 @@ final class Jdbc {
             ps.setObject(offset + i + 1, params[i]);
         }
         return offset + params.length;
+    }
+
+    /**
+     * Next id for a table whose key is NOT AUTO_INCREMENT in the submitted schema
+     * (USER, COURSE, TOPIC, QUESTION, EXAMINATION, REGISTRATION). FOR UPDATE locks the end of the
+     * key index until the transaction ends, so two concurrent inserts cannot get the same id.
+     * {@code table}/{@code idColumn} are constants from the DAOs, never user input.
+     */
+    static int nextId(Connection c, String table, String idColumn) throws SQLException {
+        return scalar(c, "SELECT COALESCE(MAX(" + idColumn + "), 0) + 1 FROM " + table + " FOR UPDATE");
     }
 
     /** "?,?,?" with n placeholders (n >= 1). */

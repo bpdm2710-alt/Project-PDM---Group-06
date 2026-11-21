@@ -2,6 +2,7 @@ package org.example.Service;
 
 import org.example.DAO.jdbc.UserDAO;
 import org.example.util.DatabaseConnection;
+import org.example.util.PasswordHasher;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -12,9 +13,9 @@ import java.sql.SQLException;
  * Login rules. The query is in {@link UserDAO}; the role comes from which subtype table
  * (STUDENT / INSTRUCTOR) holds the user.
  *
- * NOTE: USER.Password_hash currently holds the plain password (seed data does),
- * so the comparison is plain. When the team starts storing real hashes,
- * change only {@link #passwordMatches}.
+ * Passwords: USER.Password_hash holds a PBKDF2 hash ({@link PasswordHasher}). For a smooth
+ * switch, a row that still holds an old non-hashed value (e.g. "sha256:stu_hash_101" from the old
+ * seed) is compared as plain text ONCE; on success it is immediately replaced by a real hash.
  */
 public class AuthServiceImpl implements AuthService {
 
@@ -27,6 +28,7 @@ public class AuthServiceImpl implements AuthService {
         try (Connection conn = DatabaseConnection.getConnection()) {
             UserDAO.LoginRow u = UserDAO.findByEmail(conn, email.trim());
             if (u != null && passwordMatches(password, u.passwordHash())) {
+                upgradeHashIfNeeded(conn, u.userId(), password, u.passwordHash());
                 Role role = u.student() ? Role.STUDENT : u.instructor() ? Role.INSTRUCTOR : null;
                 if (role != null) {
                     return new UserAccount(u.userId(), u.firstName(), u.lastName(), u.email(), role);
@@ -42,11 +44,27 @@ public class AuthServiceImpl implements AuthService {
         throw new ServiceException(ServiceException.Kind.UNAUTHORIZED, "Invalid email or password.");
     }
 
-    private static boolean passwordMatches(String typed, String stored) {
+    static boolean passwordMatches(String typed, String stored) {
         if (stored == null) {
             return false;
         }
+        if (PasswordHasher.isHashed(stored)) {
+            return PasswordHasher.verify(typed, stored);
+        }
+        // Legacy value (not hashed yet): plain comparison, then upgraded by upgradeHashIfNeeded.
         return MessageDigest.isEqual(typed.getBytes(StandardCharsets.UTF_8),
                 stored.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Re-hashes legacy/weak values after a successful login. A failure here never blocks the login. */
+    private static void upgradeHashIfNeeded(Connection conn, int userId, String typed, String stored) {
+        if (!PasswordHasher.needsRehash(stored)) {
+            return;
+        }
+        try {
+            UserDAO.updatePasswordHash(conn, userId, PasswordHasher.hash(typed));
+        } catch (SQLException e) {
+            System.err.println("[auth] could not upgrade password hash of user " + userId + ": " + e.getMessage());
+        }
     }
 }

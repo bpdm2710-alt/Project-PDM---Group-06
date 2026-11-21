@@ -105,7 +105,7 @@ public class InstructorCoursesPage extends JPanel implements Refreshable {
         return c;
     }
 
-    /** One course: Exams, Question bank and Statistics tabs. */
+    /** One course: Exams, Question bank, Grading, Statistics and Reports tabs. */
     static final class CourseWorkspace extends JPanel {
 
         CourseWorkspace(TeachingCourse course, Runnable onBack) {
@@ -136,9 +136,13 @@ public class InstructorCoursesPage extends JPanel implements Refreshable {
             InstructorExamsTab exams = new InstructorExamsTab(course.courseId());
             QuestionBankTab bank = new QuestionBankTab(course.courseId());
             StatisticsTab stats = new StatisticsTab(course.courseId());
+            GradingTab grading = new GradingTab(course.courseId());
+            ReportsTab reports = new ReportsTab(course.courseId());
             tabs.addTab("Exams", exams);
             tabs.addTab("Question bank", bank);
+            tabs.addTab("Grading", grading);
             tabs.addTab("Statistics", stats);
+            tabs.addTab("Reports", reports);
             tabs.addChangeListener(e -> {
                 Component c = tabs.getSelectedComponent();
                 if (c instanceof Refreshable r) {

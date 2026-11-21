@@ -81,7 +81,7 @@ public class StudentResultService {
                         paperId,
                         registration.examId(),
                         now,
-                        now
+                        null            // EndTime NULL = in progress (21-table schema)
                 );
                 attemptDAO.insert(attempt);
 
@@ -128,13 +128,11 @@ public class StudentResultService {
                                     "Option " + selectedOptionNo
                                             + " does not belong to question " + questId);
                         }
-                        storedText = String.valueOf(selectedOptionNo);
                         storedOption = selectedOptionNo;
-                    } else {
-                        storedText = "";
                     }
+                    storedText = null; // MCQ: AnswerText must be NULL, the option goes to SELECT_TABLE
                 } else if (AnswerDAO.TYPE_SHORT_ANSWER.equals(question.type())) {
-                    storedText = answerText == null ? "" : answerText;
+                    storedText = answerText == null || answerText.isBlank() ? null : answerText;
                 } else {
                     throw new IllegalStateException(
                             "Unsupported question type: " + question.type());
@@ -145,7 +143,7 @@ public class StudentResultService {
                         attemptNo,
                         regisId,
                         storedText,
-                        BigDecimal.ZERO,
+                        null,           // not graded until the attempt is submitted
                         storedOption
                 );
                 answerDAO.upsert(answer);
@@ -202,8 +200,8 @@ public class StudentResultService {
                                 question.questId(),
                                 attemptNo,
                                 regisId,
-                                "",
-                                BigDecimal.ZERO,
+                                null,   // unanswered question
+                                null,
                                 null
                         );
                         answerDAO.upsert(answer);

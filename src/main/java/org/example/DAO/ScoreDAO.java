@@ -12,15 +12,16 @@ import java.util.List;
 public class ScoreDAO {
     private static final String BASE_SELECT =
             "SELECT a.RegisID, a.Attempt_no, a.EndTime, e.Pass_mark, " +
-            "COALESCE(SUM(c.Marks), 0) AS MaxScore, " +
+            "COALESCE(SUM(eqm.Marks), 0) AS MaxScore, " +
             "COALESCE(SUM(ans.MarkAwarded), 0) AS TotalScore " +
             "FROM ATTEMPT a " +
             "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
             "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-            "JOIN CONTAINS c " +
-            "  ON c.PaperID = a.PaperID AND c.Exam_ID = a.Exam_ID " +
+            // CONTAINS (20 tables) = PAPER_QUESTION (layout, by PaperKey) + EXAM_QUESTION_MARKS (marks per exam)
+            "JOIN PAPER_QUESTION pq ON pq.PaperKey = a.PaperKey " +
+            "JOIN EXAM_QUESTION_MARKS eqm ON eqm.Exam_ID = e.Exam_ID AND eqm.Quest_ID = pq.Quest_ID " +
             "LEFT JOIN ANSWER ans " +
-            "  ON ans.Quest_ID = c.Quest_ID " +
+            "  ON ans.Quest_ID = pq.Quest_ID " +
             " AND ans.Attempt_no = a.Attempt_no " +
             " AND ans.RegisID = a.RegisID ";
 
@@ -33,7 +34,7 @@ public class ScoreDAO {
     public Score findByAttempt(int regisId, int attemptNo) throws SQLException {
         String sql = BASE_SELECT +
                 "WHERE a.RegisID = ? AND a.Attempt_no = ? " +
-                "AND a.EndTime > a.StartTime " +
+                "AND a.EndTime IS NOT NULL " +
                 "GROUP BY a.RegisID, a.Attempt_no, a.EndTime, e.Pass_mark";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, regisId);
@@ -46,7 +47,7 @@ public class ScoreDAO {
 
     public List<Score> findByStudent(int userId) throws SQLException {
         String sql = BASE_SELECT +
-                "WHERE r.User_ID = ? AND a.EndTime > a.StartTime " +
+                "WHERE r.User_ID = ? AND a.EndTime IS NOT NULL " +
                 "GROUP BY a.RegisID, a.Attempt_no, a.EndTime, e.Pass_mark " +
                 "ORDER BY a.EndTime, a.RegisID, a.Attempt_no";
         List<Score> scores = new ArrayList<>();

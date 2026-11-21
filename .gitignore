@@ -42,3 +42,6 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# Local test DB config for the end-to-end tests
+src/test/resources/application.properties

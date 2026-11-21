@@ -60,11 +60,12 @@ public final class PaperDAO {
         }
         try (PreparedStatement ps = c.prepareStatement(
                 "INSERT INTO EXAM_QUESTION_MARKS (Exam_ID, Quest_ID, Marks) VALUES (?, ?, ?) " +
-                "ON DUPLICATE KEY UPDATE Marks = VALUES(Marks)")) {
+                "ON DUPLICATE KEY UPDATE Marks = ?")) {
             for (Item i : items) {
                 ps.setInt(1, examId);
                 ps.setInt(2, i.questionId());
                 ps.setBigDecimal(3, i.marks());
+                ps.setBigDecimal(4, i.marks());
                 ps.addBatch();
             }
             ps.executeBatch();

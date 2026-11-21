@@ -73,9 +73,8 @@ public class Attempt {
      * has EndTime NOT NULL. A real submission moves EndTime after StartTime.
      */
     public boolean isSubmitted() {
-        return startTime != null
-                && endTime != null
-                && endTime.after(startTime);
+        // 21-table schema: EndTime IS NULL = in progress, NOT NULL = submitted
+        return endTime != null;
     }
 
     @Override

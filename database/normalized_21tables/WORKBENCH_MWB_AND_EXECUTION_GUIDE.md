@@ -11,7 +11,7 @@ Thư mục này chứa bộ script SQL chuẩn hóa hoàn chỉnh cho thiết k�
 | `01_schema_ddl_for_mwb_import.sql` | **DDL thuần túy (chỉ CREATE TABLE + Constraints + Indexes)**, không có `DELIMITER`/Trigger/Seed — dùng để import vào MySQL Workbench sinh file `.mwb` sạch không lỗi cú pháp. |
 | `02_online_examination_full_submission.sql` | **Script nộp bài hoàn chỉnh (Deliverable D5)**: `DROP/CREATE DATABASE Online_Examination`, 21 bảng, 28 FK (đủ `ON DELETE`/`ON UPDATE`), `UNIQUE`, `CHECK`, 5 Indexes, 3 Views, Triggers bảo vệ 2 chiều, 5 Stored Procedures ACID và dữ liệu mẫu **`>= 15` dòng trên cả 21/21 bảng**. |
 | `03_verify_constraints_and_acceptance_N01_N24.sql` | Bộ test tự động kiểm tra số dòng `>= 15`, 5 câu Query bắt buộc của Topic 20, và 39 ca kiểm chứng `N01–N24` + `BR-29/37/41/42/45/49` (duplicate PK, FK sai, CHECK sai, Trigger vòng tròn, sai kỳ thi, freeze lịch sử, chấm câu trống/tab/CRLF...). |
-| `04_migration_from_old_20tables_to_21tables.sql` | Script chuyển dữ liệu giao dịch nguyên tử từ bản sao database 20 bảng cũ (`online_examination_old`) sang schema mới 21 bảng (`Online_Examination`) với **cổng chặn tự động** (nếu xung đột `Marks` cùng kỳ thi hoặc lệch audit/lossless trước `COMMIT`, toàn bộ giao dịch `ROLLBACK` và báo lỗi `1644`, không ghi dở dữ liệu). |
+| `04_migration_from_old_20tables_to_21tables.sql` | Chuyển **tại chỗ** DB `Online_Examination` đang ở schema 20 bảng sang 21 bảng, giữ dữ liệu, không cần database thứ hai: đổi tên bảng cũ thành `OLD_*`, tạo 21 bảng mới, chép dữ liệu trong 1 transaction (kiểm tra trước/sau, lỗi thì `ROLLBACK` và dừng, bảng `OLD_*` còn nguyên), tạo view/trigger/procedure, cuối cùng xóa `OLD_*` -> còn đúng 21 bảng. |
 
 > **Kết quả kiểm chứng độc lập trên MySQL 8.4.11:** `01` chạy sạch (exit code `0`); `02` chạy lại **2 lần liên tiếp** không lỗi với `>= 15` dòng trên cả `21/21` bảng; `03` đạt `ACCEPTANCE_SUMMARY|PASSED=39|FAILED=0`; `04` qua `8` tiền kiểm + `4` đối soát lossless và tự `ROLLBACK` (`0` dòng ghi) khi xung đột `Marks`.
 
@@ -46,4 +46,4 @@ Thư mục này chứa bộ script SQL chuẩn hóa hoàn chỉnh cho thiết k�
 ## 3. Lưu ý an toàn khi đụng tới Aiven DB dùng chung
 
 * **KHÔNG chạy** `02_online_examination_full_submission.sql` (có lệnh `DROP DATABASE`) lên server Aiven nếu database chung đang chứa dữ liệu test của nhóm Java/Query mà chưa sao lưu.
-* Hãy tạo một schema tách riêng cho kiểm thử, hoặc dump bản 20 bảng cũ sang `online_examination_old` rồi chạy `01` + `04` (hoặc phần Views/Triggers/Procedures trong `02`) sau khi rà soát sạch dữ liệu vi phạm.
+* Backup trước (Workbench -> Server -> Data Export), rồi chạy `04` thẳng trên `Online_Examination` đang ở schema 20 bảng; chạy xong còn đúng 21 bảng.

@@ -5,7 +5,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -82,26 +81,14 @@ public final class ExamDAO {
         }
     }
 
-    /** New exams always start as DRAFT. */
+    /** New exams always start as DRAFT. Exam_ID = MAX + 1 (the schema has no AUTO_INCREMENT). */
     public static int insert(Connection c, String title, Timestamp date, int duration,
                              BigDecimal passMark, int maxAttempts, int courseId) throws SQLException {
-        try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO EXAMINATION (Title, Exam_date, Duration, Pass_mark, Max_attempts, " +
-                "Course_ID, Status) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT')", Statement.RETURN_GENERATED_KEYS)) {
-            ps.setString(1, title);
-            ps.setTimestamp(2, date);
-            ps.setInt(3, duration);
-            ps.setBigDecimal(4, passMark);
-            ps.setInt(5, maxAttempts);
-            ps.setInt(6, courseId);
-            ps.executeUpdate();
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                if (!keys.next()) {
-                    throw new SQLException("The exam was inserted but no id was returned.");
-                }
-                return keys.getInt(1);
-            }
-        }
+        int id = Jdbc.nextId(c, "EXAMINATION", "Exam_ID");
+        Jdbc.exec(c, "INSERT INTO EXAMINATION (Exam_ID, Title, Exam_date, Duration, Pass_mark, Max_attempts, " +
+                "Course_ID, Status) VALUES (?, ?, ?, ?, ?, ?, ?, 'DRAFT')",
+                id, title, date, duration, passMark, maxAttempts, courseId);
+        return id;
     }
 
     public static void update(Connection c, int examId, String title, Timestamp date, int duration,

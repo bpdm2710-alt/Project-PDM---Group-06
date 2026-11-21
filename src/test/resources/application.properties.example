@@ -1,0 +1,6 @@
+# Copy to application.properties (same folder) to run the end-to-end tests: mvn test -Dit.db=local
+# MUST point to a LOCAL test database (tests write data). Build it with 02 + database/demo/03_demo_seed.sql.
+db.url=jdbc:mysql://localhost:3306/Online_Examination?useSSL=false&allowPublicKeyRetrieval=true
+db.username=root
+db.password=your_local_password
+# no truststore needed for a local MySQL without SSL

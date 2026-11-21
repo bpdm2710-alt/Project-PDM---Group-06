@@ -37,6 +37,11 @@ public final class UserDAO {
         }
     }
 
+    /** Replaces the stored password hash of one user. */
+    public static void updatePasswordHash(Connection c, int userId, String newHash) throws SQLException {
+        Jdbc.exec(c, "UPDATE `USER` SET Password_hash = ? WHERE User_ID = ?", newHash, userId);
+    }
+
     public static boolean isInstructor(Connection c, int userId) throws SQLException {
         return Jdbc.scalar(c, "SELECT COUNT(*) FROM INSTRUCTOR WHERE User_ID = ?", userId) > 0;
     }

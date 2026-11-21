@@ -8,6 +8,37 @@
   * Import dựng `.mwb` trên Workbench: `01_schema_ddl_for_mwb_import.sql`
   * Truy vấn Topic 20 & 39 test nghiệm thu: `03_verify_constraints_and_acceptance_N01_N24.sql`
   * Chuyển dữ liệu từ schema 20 bảng cũ: `04_migration_from_old_20tables_to_21tables.sql`
+  * DB đã dựng bằng seed cũ (`sha256:...`) -> hash mật khẩu thật: `05_upgrade_password_hashes.sql`
+* Query phân tích của project: [database/queries/PDMProjectQuery.sql](database/queries/PDMProjectQuery.sql)
+  (giống hệt `ReportDAO`, xem trong app ở tab **Reports** của giảng viên)
+* Dữ liệu demo ngày tương đối (chạy được mọi ngày): [database/demo/03_demo_seed.sql](database/demo/03_demo_seed.sql)
+* Script schema 20 bảng cũ: [database/legacy_20tables/](database/legacy_20tables/) – **không chạy lên Aiven**
+
+### Thứ tự chạy SQL (DB mới)
+1. `normalized_21tables/02_online_examination_full_submission.sql` (bảng, view, trigger, procedure, seed)
+2. (tùy chọn, chỉ trên bản sao) `normalized_21tables/03_verify_...sql` – phải ra `PASSED=39|FAILED=0`; chạy ngay sau 02 vì test cần dữ liệu seed gốc
+3. `normalized_21tables/05_upgrade_password_hashes.sql` – đổi mật khẩu seed `sha256:...` thành hash thật (mật khẩu demo bên dưới)
+4. `demo/03_demo_seed.sql` – các exam `DEMO - ...` để demo luồng làm bài
+
+Lưu ý schema: tên bảng VIẾT HOA; chỉ `PAPER.PaperKey` là AUTO_INCREMENT, các ID khác
+(`Exam_ID`, `RegisID`, `Quest_ID`, ...) do app tự sinh = MAX + 1 trong transaction (`Jdbc.nextId`).
+
+### Tài khoản demo (sau bước 3 ở trên)
+| Vai trò | Email | Mật khẩu |
+|---|---|---|
+| Giảng viên (ID 1–15) | `inst01@hcmiu.edu.vn` … `inst15@hcmiu.edu.vn` | `Inst@123` |
+| Sinh viên (ID 101–120) | `sv101@student.hcmiu.edu.vn` … `sv120@student.hcmiu.edu.vn` | `Stu@123` |
+
+Course 1 (PDM) do `inst01`, `inst02` dạy. Sau `demo/03_demo_seed.sql`: `sv101`–`sv103` làm được ngay exam `DEMO - Open now`.
+
+### Build, test, đóng gói
+* `mvn test` – unit test (không cần DB).
+* `mvn package` – tạo `target/Online_Examination_System-1.0-SNAPSHOT-all.jar` (đã gồm MySQL driver);
+  chạy: `java -jar target/Online_Examination_System-1.0-SNAPSHOT-all.jar`
+  (`application.properties` được đóng vào jar từ `src/main/Sources/`; **đừng gửi jar có mật khẩu thật cho người ngoài nhóm**).
+* Test end-to-end trên **MySQL cục bộ** (ghi dữ liệu, KHÔNG chạy lên Aiven): dựng DB bằng 02 + `demo/03_demo_seed.sql`,
+  tạo `src/test/resources/application.properties` từ `application.properties.example` trỏ tới MySQL cục bộ, rồi
+  `mvn test -Dit.db=local`.
 
 Xem [quy ước tên schema của bộ SQL](docs/normalization/README.md#schema-mysql) trước khi dựng DB mẫu hoặc chuyển dữ liệu.
 

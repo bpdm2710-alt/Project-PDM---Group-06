@@ -2,8 +2,10 @@ package org.example.Service;
 
 import org.example.DAO.jdbc.CourseDAO;
 import org.example.DAO.jdbc.ExamDAO;
+import org.example.DAO.jdbc.GradingDAO;
 import org.example.DAO.jdbc.PaperDAO;
 import org.example.DAO.jdbc.QuestionDAO;
+import org.example.DAO.jdbc.ReportDAO;
 import org.example.DAO.jdbc.StatsDAO;
 import org.example.DAO.jdbc.UserDAO;
 import org.example.session.Session;
@@ -514,6 +516,114 @@ public class InstructorServiceImpl implements InstructorService {
     }
 
     // ---- Rules and helpers ------------------------------------------------
+
+    // ---- Manual grading ---------------------------------------------------------
+
+    @Override
+    public List<PendingAnswer> listPendingGrading(int courseId) throws ServiceException {
+        return Db.run(conn -> {
+            checkTeaches(conn, courseId);
+            List<PendingAnswer> out = new ArrayList<>();
+            for (GradingDAO.PendingRow r : GradingDAO.pendingForCourse(conn, courseId)) {
+                out.add(new PendingAnswer(new AnswerRef(r.regisId(), r.attemptNo(), r.questionId()),
+                        r.studentId(), r.studentName(), r.examId(), r.examTitle(), toLdt(r.submittedAt()),
+                        r.question(), r.answerText(), r.answerKey(), r.maxMarks()));
+            }
+            return out;
+        });
+    }
+
+    @Override
+    public void gradeAnswer(AnswerRef ref, BigDecimal mark) throws ServiceException {
+        if (ref == null || mark == null) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Please enter a mark.");
+        }
+        if (mark.signum() < 0 || mark.stripTrailingZeros().scale() > 2) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION,
+                    "The mark must be 0 or more, with at most 2 decimals.");
+        }
+        Db.run(conn -> Db.tx(conn, c -> {
+            GradingDAO.Target t = GradingDAO.findForUpdate(c, ref.regisId(), ref.attemptNo(), ref.questionId());
+            if (t == null) {
+                throw new ServiceException(ServiceException.Kind.NOT_FOUND, "This answer no longer exists.");
+            }
+            checkTeaches(c, t.courseId());
+            if (!t.shortAnswer()) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "Only short answers are graded by hand; MCQs are graded automatically.");
+            }
+            if (t.endTime() == null) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "The student has not submitted this attempt yet.");
+            }
+            if (mark.compareTo(t.maxMarks()) > 0) {
+                throw new ServiceException(ServiceException.Kind.VALIDATION,
+                        "The mark cannot be more than " + t.maxMarks().stripTrailingZeros().toPlainString() + ".");
+            }
+            GradingDAO.setMark(c, ref.regisId(), ref.attemptNo(), ref.questionId(),
+                    mark.setScale(2, RoundingMode.UNNECESSARY));
+            return null;
+        }));
+    }
+
+    // ---- Project queries ---------------------------------------------------------
+
+    @Override
+    public ReportTable runReport(ReportKind kind, ReportParams p) throws ServiceException {
+        if (kind == null || p == null) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Please choose a report.");
+        }
+        Integer threshold = p.threshold() != null ? p.threshold() : kind.defaultThreshold();
+        if (kind.usesThreshold() && (threshold < 0 || threshold > 100_000)) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "The number must be 0 or more.");
+        }
+        if (kind.usesTwoExams() && (p.examA() == null || p.examB() == null)) {
+            throw new ServiceException(ServiceException.Kind.VALIDATION, "Please choose exam A and exam B.");
+        }
+        return Db.run(conn -> {
+            checkTeaches(conn, p.courseId());
+            ReportDAO.Table t = switch (kind) {
+                case HIGH_ERROR_QUESTIONS -> ReportDAO.table(conn, ReportDAO.Q1_HIGH_ERROR_RATE, threshold);
+                case EXAM_PAPER_MARKS -> ReportDAO.table(conn, ReportDAO.Q2_EXAM_PAPER_MARKS);
+                case STUDENTS_NO_ATTEMPTS -> ReportDAO.table(conn, ReportDAO.Q3_STUDENTS_NO_ATTEMPTS);
+                case ATTEMPT_SCORES -> ReportDAO.table(conn, ReportDAO.Q4_ATTEMPT_SCORES);
+                case QUESTIONS_IN_EXAM_NOT_OTHER ->
+                        ReportDAO.table(conn, ReportDAO.Q5_IN_EXAM_A_NOT_B, p.examA(), p.examB());
+                case TOPIC_QUESTION_COUNTS -> ReportDAO.table(conn, ReportDAO.Q6_TOPIC_QUESTION_COUNTS, threshold);
+                case EXAMS_AVERAGE_PASS -> ReportDAO.table(conn, ReportDAO.Q7_EXAMS_AVERAGE_PASS);
+                case STUDENTS_MANY_ATTEMPTS -> ReportDAO.table(conn, ReportDAO.Q8_STUDENTS_MANY_ATTEMPTS, threshold);
+                case EXAM_PERFORMANCE -> ReportDAO.table(conn, ReportDAO.Q9_EXAM_PERFORMANCE);
+                case STUDENTS_ALL_EXAMS -> ReportDAO.table(conn, ReportDAO.Q10_STUDENTS_ALL_EXAMS, p.courseId());
+                case TOPIC_AVERAGES -> ReportDAO.table(conn, ReportDAO.Q11_TOPIC_AVERAGES);
+            };
+            List<List<String>> rows = new ArrayList<>();
+            for (Object[] r : t.rows()) {
+                List<String> cells = new ArrayList<>(r.length);
+                for (Object v : r) {
+                    cells.add(cellText(v));
+                }
+                rows.add(cells);
+            }
+            return new ReportTable(kind, t.columns(), rows);
+        });
+    }
+
+    private static String cellText(Object v) {
+        if (v == null) {
+            return "";
+        }
+        if (v instanceof BigDecimal b) {
+            return b.setScale(Math.min(Math.max(b.stripTrailingZeros().scale(), 0), 2), RoundingMode.HALF_UP)
+                    .toPlainString();
+        }
+        if (v instanceof Timestamp ts) {
+            return ts.toLocalDateTime().withNano(0).toString().replace('T', ' ');
+        }
+        if (v instanceof LocalDateTime ldt) {
+            return ldt.withNano(0).toString().replace('T', ' ');
+        }
+        return String.valueOf(v);
+    }
 
     private static LocalDateTime toLdt(Timestamp ts) {
         return ts == null ? null : ts.toLocalDateTime();

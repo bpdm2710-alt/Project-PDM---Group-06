@@ -10,9 +10,9 @@ public class TopicDAO {
 
     public List<Topic> getAllTopics() {
         List<Topic> list = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement("SELECT topic_id, name FROM topic");
+        try (PreparedStatement ps = conn.prepareStatement("SELECT Topic_ID, Content FROM TOPIC ORDER BY Topic_ID");
              ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) list.add(new Topic(rs.getInt("topic_id"), rs.getString("name")));
+            while (rs.next()) list.add(new Topic(rs.getInt("Topic_ID"), rs.getString("Content")));
         } catch (SQLException e) { e.printStackTrace(); }
         return list;
     }

@@ -39,7 +39,8 @@ public class Score {
             percent = total.multiply(BigDecimal.valueOf(100))
                     .divide(max, 2, RoundingMode.HALF_UP);
         }
-        boolean pass = passMark != null && total.compareTo(passMark) >= 0;
+        // EXAMINATION.Pass_mark is a PERCENTAGE (0-100) in the 21-table schema
+        boolean pass = passMark != null && max.signum() > 0 && percent.compareTo(passMark) >= 0;
         return new Score(attemptNo, regisId, total, max, percent, pass, gradedAt);
     }
 

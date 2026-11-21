@@ -68,12 +68,15 @@ public final class AttemptDAO {
 
     // ---- Registration / attempt rows --------------------------------------
 
-    /** Locks the registration row. @return null when it does not exist. */
+    /** Locks the registration row (only that row). @return null when it does not exist. */
     public static RegInfo findRegistrationForUpdate(Connection c, int regisId) throws SQLException {
+        if (Jdbc.scalar(c, "SELECT RegisID FROM REGISTRATION WHERE RegisID = ? FOR UPDATE", regisId) == 0) {
+            return null;
+        }
         try (PreparedStatement ps = c.prepareStatement(
                 "SELECT r.User_ID, e.Exam_ID, e.Title, e.Exam_date, e.Duration, e.Max_attempts, co.CName, e.Status " +
                 "FROM REGISTRATION r JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                "JOIN COURSE co ON co.Course_ID = e.Course_ID WHERE r.RegisID = ? FOR UPDATE OF r")) {
+                "JOIN COURSE co ON co.Course_ID = e.Course_ID WHERE r.RegisID = ?")) {
             ps.setInt(1, regisId);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) {
@@ -145,13 +148,20 @@ public final class AttemptDAO {
                 "VALUES (?, ?, ?, NULL, ?)", attemptNo, regisId, start, paperKey);
     }
 
-    /** @return null when the attempt does not exist. */
+    /**
+     * @param lock true = lock the ATTEMPT row (only that row) until the transaction ends
+     * @return null when the attempt does not exist.
+     */
     public static Row find(Connection c, int regisId, int attemptNo, boolean lock) throws SQLException {
+        if (lock && Jdbc.scalar(c, "SELECT Attempt_no FROM ATTEMPT " +
+                "WHERE RegisID = ? AND Attempt_no = ? FOR UPDATE", regisId, attemptNo) == 0) {
+            return null;
+        }
         try (PreparedStatement ps = c.prepareStatement(
                 "SELECT a.PaperKey, r.Exam_ID, a.StartTime, a.EndTime, r.User_ID, e.Duration " +
                 "FROM ATTEMPT a JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
                 "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                "WHERE a.RegisID = ? AND a.Attempt_no = ?" + (lock ? " FOR UPDATE OF a" : ""))) {
+                "WHERE a.RegisID = ? AND a.Attempt_no = ?")) {
             ps.setInt(1, regisId);
             ps.setInt(2, attemptNo);
             try (ResultSet rs = ps.executeQuery()) {
@@ -239,15 +249,15 @@ public final class AttemptDAO {
         Jdbc.exec(c, "INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) " +
                 "VALUES (?, ?, ?, NULL, NULL) ON DUPLICATE KEY UPDATE AnswerText = NULL", questionId, attemptNo, regisId);
         Jdbc.exec(c, "INSERT INTO SELECT_TABLE (Option_no, Quest_ID, Attempt_no, RegisID) VALUES (?, ?, ?, ?) " +
-                "ON DUPLICATE KEY UPDATE Option_no = VALUES(Option_no)", optionNo, questionId, attemptNo, regisId);
+                "ON DUPLICATE KEY UPDATE Option_no = ?", optionNo, questionId, attemptNo, regisId, optionNo);
     }
 
     /** Idempotent: records (or replaces) a short answer; its mark stays NULL until submission. */
     public static void saveText(Connection c, int regisId, int attemptNo, int questionId, String text)
             throws SQLException {
         Jdbc.exec(c, "INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) " +
-                "VALUES (?, ?, ?, ?, NULL) ON DUPLICATE KEY UPDATE AnswerText = VALUES(AnswerText)",
-                questionId, attemptNo, regisId, text);
+                "VALUES (?, ?, ?, ?, NULL) ON DUPLICATE KEY UPDATE AnswerText = ?",
+                questionId, attemptNo, regisId, text, text);
     }
 
     /** The student emptied the answer: forget it (selection first, then the answer row). */
@@ -318,12 +328,13 @@ public final class AttemptDAO {
             throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
                 "INSERT INTO ANSWER (Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) " +
-                "VALUES (?, ?, ?, NULL, ?) ON DUPLICATE KEY UPDATE MarkAwarded = VALUES(MarkAwarded)")) {
+                "VALUES (?, ?, ?, NULL, ?) ON DUPLICATE KEY UPDATE MarkAwarded = ?")) {
             for (Map.Entry<Integer, BigDecimal> e : marks.entrySet()) {
                 ps.setInt(1, e.getKey());
                 ps.setInt(2, attemptNo);
                 ps.setInt(3, regisId);
                 ps.setBigDecimal(4, e.getValue());
+                ps.setBigDecimal(5, e.getValue());
                 ps.addBatch();
             }
             ps.executeBatch();

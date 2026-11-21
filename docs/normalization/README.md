@@ -24,11 +24,11 @@
 | **Dựng `.mwb` trên Workbench** | [`01_schema_ddl_for_mwb_import.sql`](../../database/normalized_21tables/01_schema_ddl_for_mwb_import.sql) + [`WORKBENCH_MWB_AND_EXECUTION_GUIDE.md`](../../database/normalized_21tables/WORKBENCH_MWB_AND_EXECUTION_GUIDE.md) | DDL thuần tạo schema `Online_Examination` (không chứa `DELIMITER`/Trigger) để *Reverse Engineer MySQL Create Script* sinh file `.mwb` và ảnh sơ đồ không lỗi cú pháp. |
 | **Team Query & Báo cáo Ch. 4** | [`03_verify_constraints_and_acceptance_N01_N24.sql`](../../database/normalized_21tables/03_verify_constraints_and_acceptance_N01_N24.sql) | Chạy trực tiếp ngay sau `02` trên `Online_Examination` để lấy kết quả 5 Query Topic 20, bảng đếm số dòng và 39 ca nghiệm thu. |
 | **Team Java DAO / Service** | [`02_online_examination_full_submission.sql`](../../database/normalized_21tables/02_online_examination_full_submission.sql) | Gọi trực tiếp 3 Views tính điểm/xếp hạng và 5 Stored Procedures ACID; không tự tính lại logic chọn đáp án hoặc chốt bài ở tầng UI. |
-| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển dữ liệu từ `online_examination_old` sang schema đích `Online_Examination` trống tạo bởi `01`; tự `ROLLBACK` (lỗi `1644`, `0` dòng ghi) nếu tiền kiểm hoặc đối soát lossless sai lệch. |
+| **Migration từ DB 20 bảng cũ** | [`04_migration_from_old_20tables_to_21tables.sql`](../../database/normalized_21tables/04_migration_from_old_20tables_to_21tables.sql) | Chuyển **tại chỗ** `Online_Examination` (20 bảng) sang 21 bảng, giữ dữ liệu, không cần database thứ hai; tự `ROLLBACK` và dừng nếu kiểm tra sai lệch; chạy xong còn đúng 21 bảng. |
 
 ### Schema MySQL
 
-Cả bốn script (`01`–`04`) dùng schema đích **`Online_Examination`**, khớp `application.properties.example` và `database/student_results/`. Script `04` đọc từ schema nguồn 20 bảng `online_examination_old`. Nếu schema nguồn có tên khác, cập nhật các tham chiếu nguồn trong `04`.
+Cả bốn script (`01`–`04`) dùng schema đích **`Online_Examination`**, khớp `application.properties.example`. Script `04` chuyển **tại chỗ** DB `Online_Examination` đang ở schema 20 bảng sang 21 bảng (đổi tên bảng cũ thành `OLD_*`, tạo bảng mới, chép dữ liệu), không cần database thứ hai.
 
 Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên Windows với `lower_case_table_names = 1`. Trên máy chủ có `lower_case_table_names = 0`, các câu lệnh dùng đúng tên `Online_Examination`. Chế độ này chưa được chạy thử.
 
@@ -45,7 +45,7 @@ Kết quả chạy thực tế bên dưới dùng MySQL 8.4.11 cô lập trên W
   * `04_migration_from_old_20tables_to_21tables.sql` vượt qua `8` chỉ số tiền kiểm + `4` chỉ số đối soát lossless với dữ liệu sạch, đồng thời tự `ROLLBACK` (`0` dòng ghi) khi gặp xung đột `Marks` cùng kỳ thi hoặc sai lệch `QuestionOrder`.
 * **3 đầu việc còn chờ nhóm phối hợp chốt trước khi áp dụng lên cloud:**
   1. Import `01_schema_ddl_for_mwb_import.sql` trên MySQL Workbench GUI để xuất file `.mwb` mới và ảnh sơ đồ quan hệ 21 bảng.
-  2. Kiểm tra dữ liệu thực tế trên Aiven (`online_examination_old`) để quyết định làm mới DB bằng `02` hay migrate an toàn bằng `01` + `04`.
+  2. Kiểm tra dữ liệu thực tế trên Aiven để quyết định làm mới DB bằng `02` (mất dữ liệu cũ) hay chuyển tại chỗ bằng `04` (giữ dữ liệu).
   3. Đồng bộ các lớp Java `DAO` / `MODEL` / `Service` trên `main` (hiện viết theo `OPTION C` / bảng 20 cột cũ như `paper_contains`, `paper_code`, `ANSWER.AnswerText` cho MCQ) sang schema 21 bảng khi nhóm thống nhất áp dụng.
 
 ---

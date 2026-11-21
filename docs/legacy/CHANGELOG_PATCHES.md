@@ -1,3 +1,5 @@
+> **LỖI THỜI (legacy):** tài liệu này mô tả trạng thái cũ (schema 20 bảng, mật khẩu thô, `EndTime = StartTime`, Pass_mark điểm thô). Xem `UPDATE_NOTES.md` ở thư mục gốc để biết trạng thái hiện tại.
+
 # Patches đã làm (lưu từng phần)
 
 Cách dùng: chép file trong `src/...` đè vào project (cùng đường dẫn). Mỗi patch là bản **cộng dồn**, file mới nhất đã gồm các patch trước.

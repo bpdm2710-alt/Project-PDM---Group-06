@@ -238,17 +238,10 @@ public final class StudentDAO {
      * error code 1062; a registration after Exam_date is refused by a trigger (SQLSTATE 45000).
      */
     public static int register(Connection c, int studentId, int examId, Timestamp now) throws SQLException {
-        try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO REGISTRATION (RegisDate, User_ID, Exam_ID) VALUES (?, ?, ?)",
-                java.sql.Statement.RETURN_GENERATED_KEYS)) {
-            ps.setTimestamp(1, now);
-            ps.setInt(2, studentId);
-            ps.setInt(3, examId);
-            ps.executeUpdate();
-            try (ResultSet keys = ps.getGeneratedKeys()) {
-                return keys.next() ? keys.getInt(1) : 0;
-            }
-        }
+        int id = Jdbc.nextId(c, "REGISTRATION", "RegisID"); // schema has no AUTO_INCREMENT
+        Jdbc.exec(c, "INSERT INTO REGISTRATION (RegisID, RegisDate, User_ID, Exam_ID) VALUES (?, ?, ?, ?)",
+                id, now, studentId, examId);
+        return id;
     }
 
     private static String likeEscape(String s) {

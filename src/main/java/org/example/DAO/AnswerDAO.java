@@ -10,6 +10,13 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * ANSWER / SELECT_TABLE for the 21-table schema.
+ *  - the old CONTAINS table is split into EXAM_QUESTION_MARKS (Marks per exam + question)
+ *    and PAPER_QUESTION (layout: PaperKey + QuestionOrder);
+ *  - ATTEMPT points to its paper through PaperKey (no more PaperID + Exam_ID);
+ *  - MCQ: ANSWER.AnswerText must be NULL (trigger), the chosen option is stored in SELECT_TABLE.
+ */
 public class AnswerDAO {
     public static final String TYPE_MCQ = "MCQ";
     public static final String TYPE_SHORT_ANSWER = "SHORT_ANSWER";
@@ -24,7 +31,13 @@ public class AnswerDAO {
                                 String type, String answerKey) {
     }
 
+    /**
+     * Inserts or updates one answer. For an MCQ (selectedOptionNo != null) AnswerText is stored as NULL
+     * and the option goes to SELECT_TABLE (ANSWER row first, because SELECT_TABLE references it).
+     */
     public void upsert(Answer answer) throws SQLException {
+        boolean mcq = answer.getSelectedOptionNo() != null;
+        String text = mcq ? null : answer.getAnswerText();
         String sql = "INSERT INTO ANSWER " +
                 "(Quest_ID, Attempt_no, RegisID, AnswerText, MarkAwarded) " +
                 "VALUES (?, ?, ?, ?, ?) " +
@@ -33,11 +46,23 @@ public class AnswerDAO {
             ps.setInt(1, answer.getQuestId());
             ps.setInt(2, answer.getAttemptNo());
             ps.setInt(3, answer.getRegisId());
-            ps.setString(4, answer.getAnswerText());
+            ps.setString(4, text);
             ps.setBigDecimal(5, answer.getMarkAwarded());
-            ps.setString(6, answer.getAnswerText());
+            ps.setString(6, text);
             ps.setBigDecimal(7, answer.getMarkAwarded());
             ps.executeUpdate();
+        }
+        if (mcq) {
+            String sel = "INSERT INTO SELECT_TABLE (Option_no, Quest_ID, Attempt_no, RegisID) " +
+                    "VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE Option_no = ?";
+            try (PreparedStatement ps = conn.prepareStatement(sel)) {
+                ps.setInt(1, answer.getSelectedOptionNo());
+                ps.setInt(2, answer.getQuestId());
+                ps.setInt(3, answer.getAttemptNo());
+                ps.setInt(4, answer.getRegisId());
+                ps.setInt(5, answer.getSelectedOptionNo());
+                ps.executeUpdate();
+            }
         }
     }
 
@@ -95,18 +120,21 @@ public class AnswerDAO {
         }
     }
 
+    /** Questions of paper {@code paperId} of exam {@code examId}, in paper order. */
     public List<PaperQuestion> findPaperQuestions(int paperId, int examId)
             throws SQLException {
-        String sql = "SELECT c.Quest_ID, c.Marks, c.QuestionOrder, " +
+        String sql = "SELECT pq.Quest_ID, eqm.Marks, pq.QuestionOrder, " +
                 "CASE WHEN m.Quest_ID IS NOT NULL THEN 'MCQ' " +
                 "     WHEN sa.Quest_ID IS NOT NULL THEN 'SHORT_ANSWER' " +
                 "     ELSE 'UNKNOWN' END AS QuestionType, " +
                 "sa.Answer_key " +
-                "FROM CONTAINS c " +
-                "LEFT JOIN MCQ m ON m.Quest_ID = c.Quest_ID " +
-                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = c.Quest_ID " +
-                "WHERE c.PaperID = ? AND c.Exam_ID = ? " +
-                "ORDER BY c.QuestionOrder";
+                "FROM PAPER p " +
+                "JOIN PAPER_QUESTION pq ON pq.PaperKey = p.PaperKey " +
+                "JOIN EXAM_QUESTION_MARKS eqm ON eqm.Exam_ID = p.Exam_ID AND eqm.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN MCQ m ON m.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = pq.Quest_ID " +
+                "WHERE p.PaperID = ? AND p.Exam_ID = ? " +
+                "ORDER BY pq.QuestionOrder";
         List<PaperQuestion> questions = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, paperId);
@@ -120,19 +148,21 @@ public class AnswerDAO {
         return questions;
     }
 
+    /** One question of the paper assigned to the attempt, or null when it is not on that paper. */
     public PaperQuestion findPaperQuestion(int regisId, int attemptNo, int questId)
             throws SQLException {
-        String sql = "SELECT c.Quest_ID, c.Marks, c.QuestionOrder, " +
+        String sql = "SELECT pq.Quest_ID, eqm.Marks, pq.QuestionOrder, " +
                 "CASE WHEN m.Quest_ID IS NOT NULL THEN 'MCQ' " +
                 "     WHEN sa.Quest_ID IS NOT NULL THEN 'SHORT_ANSWER' " +
                 "     ELSE 'UNKNOWN' END AS QuestionType, " +
                 "sa.Answer_key " +
                 "FROM ATTEMPT a " +
-                "JOIN CONTAINS c " +
-                "  ON c.PaperID = a.PaperID AND c.Exam_ID = a.Exam_ID " +
-                "LEFT JOIN MCQ m ON m.Quest_ID = c.Quest_ID " +
-                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = c.Quest_ID " +
-                "WHERE a.RegisID = ? AND a.Attempt_no = ? AND c.Quest_ID = ?";
+                "JOIN PAPER p ON p.PaperKey = a.PaperKey " +
+                "JOIN PAPER_QUESTION pq ON pq.PaperKey = a.PaperKey " +
+                "JOIN EXAM_QUESTION_MARKS eqm ON eqm.Exam_ID = p.Exam_ID AND eqm.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN MCQ m ON m.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN SHORT_ANSWER sa ON sa.Quest_ID = pq.Quest_ID " +
+                "WHERE a.RegisID = ? AND a.Attempt_no = ? AND pq.Quest_ID = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, regisId);
             ps.setInt(2, attemptNo);
@@ -166,25 +196,24 @@ public class AnswerDAO {
         }
     }
 
+    /** The chosen MCQ option now comes from SELECT_TABLE (AnswerText is NULL for MCQ). */
     private String baseSelect() {
         return "SELECT a.Quest_ID, a.Attempt_no, a.RegisID, " +
-                "a.AnswerText, a.MarkAwarded, " +
-                "CASE WHEN m.Quest_ID IS NOT NULL THEN 1 ELSE 0 END AS IsMcq " +
+                "a.AnswerText, a.MarkAwarded, st.Option_no AS SelectedOption " +
                 "FROM ANSWER a " +
-                "LEFT JOIN MCQ m ON m.Quest_ID = a.Quest_ID " +
+                "LEFT JOIN SELECT_TABLE st ON st.Quest_ID = a.Quest_ID " +
+                "  AND st.Attempt_no = a.Attempt_no AND st.RegisID = a.RegisID " +
                 "WHERE a.Attempt_no = ? AND a.RegisID = ?";
     }
 
     private Answer mapRow(ResultSet rs) throws SQLException {
-        String text = rs.getString("AnswerText");
-        Integer selectedOption = rs.getBoolean("IsMcq")
-                ? parseOptionNo(text)
-                : null;
+        int option = rs.getInt("SelectedOption");
+        Integer selectedOption = rs.wasNull() ? null : option;
         return new Answer(
                 rs.getInt("Quest_ID"),
                 rs.getInt("Attempt_no"),
                 rs.getInt("RegisID"),
-                text,
+                rs.getString("AnswerText"),
                 rs.getBigDecimal("MarkAwarded"),
                 selectedOption
         );
@@ -198,16 +227,5 @@ public class AnswerDAO {
                 rs.getString("QuestionType"),
                 rs.getString("Answer_key")
         );
-    }
-
-    private Integer parseOptionNo(String text) {
-        if (text == null) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(text.trim());
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 }

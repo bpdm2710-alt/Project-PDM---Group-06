@@ -191,4 +191,106 @@ public interface InstructorService {
     /** Which attempt counts per student is decided by D09. */
     StudentMarkTable listStudentMarks(int courseId, boolean completedAllOnly,
                                       int page, int pageSize) throws ServiceException;
+
+    // ---- Manual grading (short answers) -----------------------------------
+
+    /** Identifies one ANSWER row. */
+    record AnswerRef(int regisId, int attemptNo, int questionId) {
+    }
+
+    /** A submitted short answer that did not match the answer key and still has no mark. */
+    record PendingAnswer(AnswerRef ref,
+                         int studentId,
+                         String studentName,
+                         int examId,
+                         String examTitle,
+                         LocalDateTime submittedAt,
+                         String question,
+                         String answerText,
+                         String answerKey,
+                         BigDecimal maxMarks) {
+    }
+
+    /** Pending short answers of the course, oldest submission first. */
+    List<PendingAnswer> listPendingGrading(int courseId) throws ServiceException;
+
+    /**
+     * Gives a manual mark (0 .. max marks, at most 2 decimals) to one submitted short answer.
+     * A mark can be corrected later by calling this again.
+     */
+    void gradeAnswer(AnswerRef ref, BigDecimal mark) throws ServiceException;
+
+    // ---- Project queries (PDMProjectQuery.sql / ReportDAO) --------------------------------
+
+    /** The analytical queries, Q1..Q11 as numbered in PDMProjectQuery.sql. */
+    enum ReportKind {
+        HIGH_ERROR_QUESTIONS("Q1. Questions with a high error rate",
+                "MCQs answered wrongly in more than N % of submitted attempts (CTE + GROUP BY)."),
+        EXAM_PAPER_MARKS("Q2. Exam papers and marks",
+                "Every question of every paper with its order and marks (5-table JOIN)."),
+        STUDENTS_NO_ATTEMPTS("Q3. Students with no attempts",
+                "Students who never started an attempt (NOT EXISTS)."),
+        ATTEMPT_SCORES("Q4. Score of every attempt",
+                "Total score of each submitted, fully graded attempt (nested IN)."),
+        QUESTIONS_IN_EXAM_NOT_OTHER("Q5. Questions in exam A but not in exam B",
+                "Set difference of two exams' questions (EXCEPT)."),
+        TOPIC_QUESTION_COUNTS("Q6. Topics with many questions",
+                "Topics having at least N questions (GROUP BY / HAVING)."),
+        EXAMS_AVERAGE_PASS("Q7. Exams whose average reaches the pass mark",
+                "Average score % of fully graded attempts >= Pass_mark (GROUP BY / HAVING)."),
+        STUDENTS_MANY_ATTEMPTS("Q8. Students with many attempts",
+                "Students with at least N attempts (GROUP BY / HAVING)."),
+        EXAM_PERFORMANCE("Q9. Examination performance summary",
+                "Attempts, average and highest score per exam (view v_attempt_scores)."),
+        STUDENTS_ALL_EXAMS("Q10. Students who took every exam of this course",
+                "Submitted an attempt for every published exam of the course (relational division)."),
+        TOPIC_AVERAGES("Q11. Average score by topic",
+                "Average mark and % per topic, submitted attempts (same SQL as view vw_AverageScoreByTopic).");
+
+        private final String title;
+        private final String description;
+
+        ReportKind(String title, String description) {
+            this.title = title;
+            this.description = description;
+        }
+
+        public String title() {
+            return title;
+        }
+
+        public String description() {
+            return description;
+        }
+
+        /** True when the report uses {@link ReportParams#threshold()}. */
+        public boolean usesThreshold() {
+            return this == HIGH_ERROR_QUESTIONS || this == TOPIC_QUESTION_COUNTS || this == STUDENTS_MANY_ATTEMPTS;
+        }
+
+        /** True when the report compares {@link ReportParams#examA()} with {@link ReportParams#examB()}. */
+        public boolean usesTwoExams() {
+            return this == QUESTIONS_IN_EXAM_NOT_OTHER;
+        }
+
+        /** Value used when the user leaves the threshold empty (same as PDMProjectQuery.sql). */
+        public Integer defaultThreshold() {
+            return this == HIGH_ERROR_QUESTIONS ? Integer.valueOf(70) : usesThreshold() ? Integer.valueOf(2) : null;
+        }
+
+        @Override
+        public String toString() {
+            return title;
+        }
+    }
+
+    /** {@code threshold}/{@code examA}/{@code examB} may be null when the report does not use them. */
+    record ReportParams(int courseId, Integer threshold, Integer examA, Integer examB) {
+    }
+
+    /** A query result ready to show in a table (values already formatted as text). */
+    record ReportTable(ReportKind kind, List<String> columns, List<List<String>> rows) {
+    }
+
+    ReportTable runReport(ReportKind kind, ReportParams params) throws ServiceException;
 }

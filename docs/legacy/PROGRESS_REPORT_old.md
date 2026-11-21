@@ -1,3 +1,5 @@
+> **LỖI THỜI (legacy):** tài liệu này mô tả trạng thái cũ (schema 20 bảng, mật khẩu thô, `EndTime = StartTime`, Pass_mark điểm thô). Xem `UPDATE_NOTES.md` ở thư mục gốc để biết trạng thái hiện tại.
+
 # Báo cáo tiến độ – Online Examination (Group 06)
 
 Đánh giá dựa trên code trong file zip (git log tới commit `15767fc`).
