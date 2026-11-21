@@ -32,19 +32,20 @@ public final class CourseDAO {
     }
 
     public static List<TeachingRow> listTeaching(Connection c, int instructorId) throws SQLException {
-        String sql = "SELECT c.Course_ID, c.CName, c.Credits, t.Semester, " +
+        // TEACH is keyed by (instructor, course, semester): show each course once, with the latest semester.
+        String sql = "SELECT c.Course_ID, c.CName, c.Credits, MAX(t.Semester) AS semester, " +
                 "(SELECT COUNT(DISTINCT r.User_ID) FROM REGISTRATION r " +
                 "   JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID WHERE e.Course_ID = c.Course_ID) AS students, " +
                 "(SELECT COUNT(*) FROM EXAMINATION e2 WHERE e2.Course_ID = c.Course_ID) AS exams " +
                 "FROM TEACH t JOIN COURSE c ON c.Course_ID = t.Course_ID " +
-                "WHERE t.User_ID = ? ORDER BY c.CName, c.Course_ID";
+                "WHERE t.User_ID = ? GROUP BY c.Course_ID, c.CName, c.Credits ORDER BY c.CName, c.Course_ID";
         List<TeachingRow> out = new ArrayList<>();
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setInt(1, instructorId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     out.add(new TeachingRow(rs.getInt("Course_ID"), rs.getString("CName"),
-                            rs.getInt("Credits"), rs.getString("Semester"),
+                            rs.getInt("Credits"), rs.getString("semester"),
                             rs.getInt("students"), rs.getInt("exams")));
                 }
             }

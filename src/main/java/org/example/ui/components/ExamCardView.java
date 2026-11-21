@@ -45,7 +45,7 @@ public final class ExamCardView {
         info.add(Box.createVerticalStrut(7));
         info.add(left(label(Fmt.dateTime(e.examDate()) + "  ·  " + e.durationMin() + " min  ·  "
                 + Fmt.plural(e.questionCount(), "question") + "  ·  " + Fmt.marks(e.totalMarks())
-                + " marks  ·  pass " + Fmt.marks(e.passMark()), plain(11), MUTED)));
+                + " marks  ·  pass " + Fmt.marks(e.passMark()) + "%", plain(11), MUTED)));
         if (e.regisId() != null) {
             info.add(Box.createVerticalStrut(3));
             info.add(left(label("Attempts used: " + e.attemptsUsed() + " / " + e.maxAttempts(),

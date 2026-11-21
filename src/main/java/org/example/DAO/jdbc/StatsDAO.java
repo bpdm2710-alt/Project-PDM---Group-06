@@ -11,7 +11,7 @@ import java.util.List;
 
 /**
  * Read-only queries behind the instructor Statistics tab. Everything is limited to PUBLISHED exams
- * of one course; "finished attempt" means EndTime &gt; StartTime. Choosing which attempt counts and
+ * of one course; "finished attempt" means EndTime IS NOT NULL. Choosing which attempt counts and
  * turning rows into percentages is the service's job.
  */
 public final class StatsDAO {
@@ -96,10 +96,11 @@ public final class StatsDAO {
                 "FROM ATTEMPT a " +
                 "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
                 "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
-                "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
+                "JOIN PAPER_QUESTION pq ON pq.PaperKey = a.PaperKey " +
+                "JOIN EXAM_QUESTION_MARKS ct ON ct.Exam_ID = e.Exam_ID AND ct.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN ANSWER ans ON ans.Quest_ID = pq.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
                 "  AND ans.RegisID = a.RegisID " +
-                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime " +
+                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime IS NOT NULL " +
                 "GROUP BY a.RegisID, a.Attempt_no, r.User_ID, e.Exam_ID " +
                 "ORDER BY a.RegisID, a.Attempt_no")) {
             ps.setInt(1, courseId);
@@ -122,12 +123,13 @@ public final class StatsDAO {
                 "FROM ATTEMPT a " +
                 "JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
                 "JOIN EXAMINATION e ON e.Exam_ID = r.Exam_ID " +
-                "JOIN CONTAINS ct ON ct.PaperID = a.PaperID AND ct.Exam_ID = a.Exam_ID " +
-                "JOIN QUESTION q ON q.Quest_ID = ct.Quest_ID " +
+                "JOIN PAPER_QUESTION pq ON pq.PaperKey = a.PaperKey " +
+                "JOIN EXAM_QUESTION_MARKS ct ON ct.Exam_ID = e.Exam_ID AND ct.Quest_ID = pq.Quest_ID " +
+                "JOIN QUESTION q ON q.Quest_ID = pq.Quest_ID " +
                 "JOIN TOPIC t ON t.Topic_ID = q.Topic_ID " +
-                "LEFT JOIN ANSWER ans ON ans.Quest_ID = ct.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
+                "LEFT JOIN ANSWER ans ON ans.Quest_ID = pq.Quest_ID AND ans.Attempt_no = a.Attempt_no " +
                 "  AND ans.RegisID = a.RegisID " +
-                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime > a.StartTime")) {
+                "WHERE e.Course_ID = ? AND e.Status = 'PUBLISHED' AND a.EndTime IS NOT NULL")) {
             ps.setInt(1, courseId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

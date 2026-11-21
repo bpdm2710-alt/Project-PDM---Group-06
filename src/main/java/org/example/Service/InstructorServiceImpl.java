@@ -42,7 +42,9 @@ public class InstructorServiceImpl implements InstructorService {
     private static final int MAX_QUESTION_CHARS = 5000;
     private static final int MAX_OPTIONS = 10;
     private static final int HARDEST_LIMIT = 5;
-    private static final BigDecimal MAX_MARKS = new BigDecimal("9999.99");
+    // EXAM_QUESTION_MARKS.Marks is DECIMAL(5,2)
+    private static final BigDecimal MAX_MARKS = new BigDecimal("999.99");
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
 
     // ---- My courses -------------------------------------------------------
 
@@ -129,10 +131,10 @@ public class InstructorServiceImpl implements InstructorService {
             throw new ServiceException(ServiceException.Kind.VALIDATION,
                     "Maximum attempts must be between 1 and 20.");
         }
-        if (d.passMark() == null || d.passMark().signum() < 0
-                || d.passMark().compareTo(new BigDecimal("9999.99")) > 0) {
+        // EXAMINATION.Pass_mark is a percentage of the paper's total marks.
+        if (d.passMark() == null || d.passMark().signum() < 0 || d.passMark().compareTo(HUNDRED) > 0) {
             throw new ServiceException(ServiceException.Kind.VALIDATION,
-                    "Pass mark must be a number from 0 to 9999.99.");
+                    "Pass mark is a percentage: enter a number from 0 to 100.");
         }
         Timestamp date = d.examDate() == null ? null : Timestamp.valueOf(d.examDate().withNano(0));
 
@@ -233,7 +235,7 @@ public class InstructorServiceImpl implements InstructorService {
             }
             if (q.marks() == null || q.marks().signum() <= 0 || q.marks().compareTo(MAX_MARKS) > 0) {
                 throw new ServiceException(ServiceException.Kind.VALIDATION,
-                        "Marks must be greater than 0 and at most 9999.99.");
+                        "Marks must be greater than 0 and at most 999.99.");
             }
         }
         // The order that matters is the order given; store it as 1..n.
@@ -348,13 +350,21 @@ public class InstructorServiceImpl implements InstructorService {
             }
             QuestionDraft old = loadQuestion(c, id);
             boolean answered = QuestionDAO.answerCount(c, id) > 0;
+            boolean attempted = QuestionDAO.attemptedCount(c, id) > 0;
+            boolean sameContent = Objects.equals(trimOrNull(old.content()), content);
             boolean sameBody = old.type() == d.type() && old.topicId() == d.topicId()
                     && sameOptions(old.options(), d.options())
                     && Objects.equals(trimOrNull(old.answerKey()), trimOrNull(d.answerKey()));
-            if (answered && !sameBody) {
+            // The database freezes a question once an attempt used it (historical freeze triggers).
+            if ((answered || attempted) && (!sameBody || !sameContent)) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
-                        "Students have already answered this question. You can fix the wording " +
-                        "and difficulty, but not its type, topic, options or answer key.");
+                        "Students have already attempted an exam with this question. Only its " +
+                        "difficulty can be changed now.");
+            }
+            if (!sameBody && QuestionDAO.paperUseCount(c, id) > 0) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "This question is on an exam paper. Remove it from the paper(s) before " +
+                        "changing its type, topic, options or answer key.");
             }
             QuestionDAO.update(c, id, content, d.difficulty(), d.topicId());
             if (!sameBody) {

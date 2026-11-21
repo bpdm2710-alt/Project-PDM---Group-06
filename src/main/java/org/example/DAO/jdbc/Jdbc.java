@@ -36,6 +36,11 @@ final class Jdbc {
         return offset + params.length;
     }
 
+    /** "?,?,?" with n placeholders (n >= 1). */
+    static String placeholders(int n) {
+        return String.join(",", java.util.Collections.nCopies(n, "?"));
+    }
+
     static int bind(PreparedStatement ps, List<Object> params, int offset) throws SQLException {
         return bind(ps, params.toArray(), offset);
     }

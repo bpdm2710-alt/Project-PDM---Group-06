@@ -16,11 +16,14 @@ final class Db {
     private Db() {
     }
 
-    /** Opens a connection, runs the work, and turns SQL problems into UNAVAILABLE. */
+    /** Opens a connection, runs the work, and turns SQL problems into a {@link ServiceException}. */
     static <T> T run(Work<T> work) throws ServiceException {
         try (Connection conn = DatabaseConnection.getConnection()) {
             return work.run(conn);
-        } catch (SQLException | RuntimeException | LinkageError e) {
+        } catch (SQLException e) {
+            e.printStackTrace();
+            throw translate(e);
+        } catch (RuntimeException | LinkageError e) {
             e.printStackTrace();
             throw new ServiceException(ServiceException.Kind.UNAVAILABLE,
                     "Cannot read from the database. [" + ServiceException.rootCauseText(e) + "]", e);
@@ -42,5 +45,31 @@ final class Db {
             }
             throw e;
         }
+    }
+
+    /**
+     * Maps what the database itself refused (business-rule triggers, CHECK, UNIQUE and FOREIGN KEY
+     * violations) to a message the user can read; anything else means the database is unavailable.
+     */
+    static ServiceException translate(SQLException e) {
+        String state = e.getSQLState();
+        int code = e.getErrorCode();
+        if ("45000".equals(state)) {              // SIGNAL from a trigger / stored procedure
+            return new ServiceException(ServiceException.Kind.CONFLICT, e.getMessage(), e);
+        }
+        if (code == 3819) {                        // CHECK constraint violated
+            return new ServiceException(ServiceException.Kind.VALIDATION,
+                    "A value is outside the allowed range. [" + ServiceException.rootCauseText(e) + "]", e);
+        }
+        if (code == 1062) {                        // duplicate key
+            return new ServiceException(ServiceException.Kind.CONFLICT,
+                    "That record already exists.", e);
+        }
+        if (code == 1451 || code == 1452) {        // foreign key
+            return new ServiceException(ServiceException.Kind.CONFLICT,
+                    "The data is linked to other records, so this change is not allowed.", e);
+        }
+        return new ServiceException(ServiceException.Kind.UNAVAILABLE,
+                "Cannot read from the database. [" + ServiceException.rootCauseText(e) + "]", e);
     }
 }

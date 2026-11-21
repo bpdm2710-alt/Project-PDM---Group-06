@@ -6,7 +6,13 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.List;
 
-/** Writing a paper: PAPER and CONTAINS. (Reading is in {@link ExamDAO}.) */
+/**
+ * Writing a paper: PAPER, PAPER_QUESTION (layout) and EXAM_QUESTION_MARKS (marks per exam and question).
+ * (Reading is in {@link ExamDAO}.)
+ *
+ * The service still talks in (examId, paperId); this class maps that pair to the surrogate PaperKey.
+ * Marks live per EXAM, not per paper: two papers of the same exam give the same marks to a question.
+ */
 public final class PaperDAO {
 
     /** One question of a paper; {@code order} is already the final 1..n position. */
@@ -30,24 +36,56 @@ public final class PaperDAO {
                 examId, paperId) > 0;
     }
 
-    /** Removes every question from the paper (the paper row stays). */
-    public static void clear(Connection c, int examId, int paperId) throws SQLException {
-        Jdbc.exec(c, "DELETE FROM CONTAINS WHERE Exam_ID = ? AND PaperID = ?", examId, paperId);
+    /** PaperKey of (examId, paperId), or 0 when the paper does not exist. */
+    public static int paperKey(Connection c, int examId, int paperId) throws SQLException {
+        return Jdbc.scalar(c, "SELECT PaperKey FROM PAPER WHERE Exam_ID = ? AND PaperID = ?", examId, paperId);
     }
 
+    /** Removes every question from the paper (the paper row stays). */
+    public static void clear(Connection c, int examId, int paperId) throws SQLException {
+        Jdbc.exec(c, "DELETE pq FROM PAPER_QUESTION pq JOIN PAPER p ON p.PaperKey = pq.PaperKey " +
+                "WHERE p.Exam_ID = ? AND p.PaperID = ?", examId, paperId);
+    }
+
+    /**
+     * Places the questions on the paper. EXAM_QUESTION_MARKS must hold the marks first (a trigger
+     * insists), so marks are upserted before the layout rows; marks of questions that no paper of
+     * the exam uses any more are removed afterwards.
+     */
     public static void addQuestions(Connection c, int examId, int paperId, List<Item> items)
             throws SQLException {
+        int key = paperKey(c, examId, paperId);
+        if (key == 0) {
+            throw new SQLException("Paper " + paperId + " of exam " + examId + " does not exist.");
+        }
         try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO CONTAINS (Quest_ID, PaperID, Exam_ID, QuestionOrder, Marks) VALUES (?, ?, ?, ?, ?)")) {
+                "INSERT INTO EXAM_QUESTION_MARKS (Exam_ID, Quest_ID, Marks) VALUES (?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE Marks = VALUES(Marks)")) {
             for (Item i : items) {
-                ps.setInt(1, i.questionId());
-                ps.setInt(2, paperId);
-                ps.setInt(3, examId);
-                ps.setInt(4, i.order());
-                ps.setBigDecimal(5, i.marks());
+                ps.setInt(1, examId);
+                ps.setInt(2, i.questionId());
+                ps.setBigDecimal(3, i.marks());
                 ps.addBatch();
             }
             ps.executeBatch();
         }
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO PAPER_QUESTION (PaperKey, Quest_ID, QuestionOrder) VALUES (?, ?, ?)")) {
+            for (Item i : items) {
+                ps.setInt(1, key);
+                ps.setInt(2, i.questionId());
+                ps.setInt(3, i.order());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+        deleteUnusedMarks(c, examId);
+    }
+
+    /** Drops EXAM_QUESTION_MARKS rows of the exam whose question is on none of its papers. */
+    public static void deleteUnusedMarks(Connection c, int examId) throws SQLException {
+        Jdbc.exec(c, "DELETE eqm FROM EXAM_QUESTION_MARKS eqm WHERE eqm.Exam_ID = ? AND NOT EXISTS (" +
+                "SELECT 1 FROM PAPER_QUESTION pq JOIN PAPER p ON p.PaperKey = pq.PaperKey " +
+                "WHERE p.Exam_ID = eqm.Exam_ID AND pq.Quest_ID = eqm.Quest_ID)", examId);
     }
 }

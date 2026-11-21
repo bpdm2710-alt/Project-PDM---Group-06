@@ -174,7 +174,7 @@ public class InstructorExamsTab extends JPanel implements Refreshable {
             addRow(form, 0, "Title", title);
             addRow(form, 1, "Date & time (yyyy-MM-dd HH:mm, blank = not scheduled)", date);
             addRow(form, 2, "Duration (minutes)", duration);
-            addRow(form, 3, "Pass mark (marks)", pass);
+            addRow(form, 3, "Pass mark (% of total marks, 0-100)", pass);
             addRow(form, 4, "Max attempts", attempts);
 
             JButton save = primaryButton("Save");

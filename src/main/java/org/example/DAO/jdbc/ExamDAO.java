@@ -10,7 +10,7 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
-/** EXAMINATION plus the read-only views of its papers (PAPER / CONTAINS). */
+/** EXAMINATION plus the read-only views of its papers (PAPER / PAPER_QUESTION / EXAM_QUESTION_MARKS). */
 public final class ExamDAO {
 
     /** One line of the exams list. {@code questionCount}/{@code totalMarks} are for the lowest-numbered paper. */
@@ -26,9 +26,12 @@ public final class ExamDAO {
                                    boolean mcq, BigDecimal marks) {
     }
 
+    /** Layout rows (with marks) of the exam's lowest-numbered paper; alias {@code e} = EXAMINATION. */
     private static final String FIRST_PAPER =
-            " FROM CONTAINS ct WHERE ct.Exam_ID = e.Exam_ID AND ct.PaperID = " +
-            "(SELECT MIN(p.PaperID) FROM PAPER p WHERE p.Exam_ID = e.Exam_ID)";
+            " FROM PAPER_QUESTION pq JOIN EXAM_QUESTION_MARKS eqm " +
+            "ON eqm.Exam_ID = e.Exam_ID AND eqm.Quest_ID = pq.Quest_ID " +
+            "WHERE pq.PaperKey = (SELECT p.PaperKey FROM PAPER p WHERE p.Exam_ID = e.Exam_ID " +
+            "ORDER BY p.PaperID LIMIT 1)";
 
     private ExamDAO() {
     }
@@ -36,7 +39,7 @@ public final class ExamDAO {
     public static List<ListRow> list(Connection c, int courseId) throws SQLException {
         String sql = "SELECT e.Exam_ID, e.Title, e.Exam_date, e.Duration, e.Status, " +
                 "(SELECT COUNT(*)" + FIRST_PAPER + ") AS question_count, " +
-                "(SELECT COALESCE(SUM(ct.Marks), 0)" + FIRST_PAPER + ") AS total_marks " +
+                "(SELECT COALESCE(SUM(eqm.Marks), 0)" + FIRST_PAPER + ") AS total_marks " +
                 "FROM EXAMINATION e WHERE e.Course_ID = ? " +
                 "ORDER BY (e.Exam_date IS NULL), e.Exam_date DESC, e.Exam_ID DESC";
         List<ListRow> out = new ArrayList<>();
@@ -112,27 +115,30 @@ public final class ExamDAO {
         Jdbc.exec(c, "UPDATE EXAMINATION SET Status = ? WHERE Exam_ID = ?", status, examId);
     }
 
-    /** Removes the exam with its paper(s) and registrations, in foreign-key-safe order. */
+    /** Removes the exam with its papers, marks and registrations, in foreign-key-safe order. */
     public static void deleteWithPapers(Connection c, int examId) throws SQLException {
-        Jdbc.exec(c, "DELETE FROM CONTAINS WHERE Exam_ID = ?", examId);
+        Jdbc.exec(c, "DELETE pq FROM PAPER_QUESTION pq JOIN PAPER p ON p.PaperKey = pq.PaperKey " +
+                "WHERE p.Exam_ID = ?", examId);
+        Jdbc.exec(c, "DELETE FROM EXAM_QUESTION_MARKS WHERE Exam_ID = ?", examId);
         Jdbc.exec(c, "DELETE FROM PAPER WHERE Exam_ID = ?", examId);
         Jdbc.exec(c, "DELETE FROM REGISTRATION WHERE Exam_ID = ?", examId);
         Jdbc.exec(c, "DELETE FROM EXAMINATION WHERE Exam_ID = ?", examId);
     }
 
     public static int countAttempts(Connection c, int examId) throws SQLException {
-        return Jdbc.scalar(c, "SELECT COUNT(*) FROM ATTEMPT WHERE Exam_ID = ?", examId);
+        return Jdbc.scalar(c, "SELECT COUNT(*) FROM ATTEMPT a JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
+                "WHERE r.Exam_ID = ?", examId);
     }
 
     public static int mostAttemptsByOneStudent(Connection c, int examId) throws SQLException {
-        return Jdbc.scalar(c, "SELECT COALESCE(MAX(n), 0) FROM " +
-                "(SELECT COUNT(*) AS n FROM ATTEMPT WHERE Exam_ID = ? GROUP BY RegisID) x", examId);
+        return Jdbc.scalar(c, "SELECT COALESCE(MAX(n), 0) FROM (SELECT COUNT(*) AS n FROM ATTEMPT a " +
+                "JOIN REGISTRATION r ON r.RegisID = a.RegisID WHERE r.Exam_ID = ? GROUP BY a.RegisID) x", examId);
     }
 
     /** Questions in the exam's lowest-numbered paper (the one students get). */
     public static int countPaperQuestions(Connection c, int examId) throws SQLException {
-        return Jdbc.scalar(c, "SELECT COUNT(*) FROM CONTAINS ct WHERE ct.Exam_ID = ? AND ct.PaperID = " +
-                "(SELECT MIN(p.PaperID) FROM PAPER p WHERE p.Exam_ID = ct.Exam_ID)", examId);
+        return Jdbc.scalar(c, "SELECT COUNT(*) FROM PAPER_QUESTION pq WHERE pq.PaperKey = " +
+                "(SELECT p.PaperKey FROM PAPER p WHERE p.Exam_ID = ? ORDER BY p.PaperID LIMIT 1)", examId);
     }
 
     public static List<Integer> paperIds(Connection c, int examId) throws SQLException {
@@ -152,11 +158,13 @@ public final class ExamDAO {
     public static List<PaperQuestionRow> paperQuestions(Connection c, int examId) throws SQLException {
         List<PaperQuestionRow> out = new ArrayList<>();
         try (PreparedStatement ps = c.prepareStatement(
-                "SELECT ct.PaperID, ct.Quest_ID, ct.QuestionOrder, ct.Marks, q.Content, " +
+                "SELECT p.PaperID, pq.Quest_ID, pq.QuestionOrder, eqm.Marks, q.Content, " +
                 "(m.Quest_ID IS NOT NULL) AS is_mcq " +
-                "FROM CONTAINS ct JOIN QUESTION q ON q.Quest_ID = ct.Quest_ID " +
-                "LEFT JOIN MCQ m ON m.Quest_ID = ct.Quest_ID " +
-                "WHERE ct.Exam_ID = ? ORDER BY ct.PaperID, ct.QuestionOrder, ct.Quest_ID")) {
+                "FROM PAPER p JOIN PAPER_QUESTION pq ON pq.PaperKey = p.PaperKey " +
+                "JOIN EXAM_QUESTION_MARKS eqm ON eqm.Exam_ID = p.Exam_ID AND eqm.Quest_ID = pq.Quest_ID " +
+                "JOIN QUESTION q ON q.Quest_ID = pq.Quest_ID " +
+                "LEFT JOIN MCQ m ON m.Quest_ID = pq.Quest_ID " +
+                "WHERE p.Exam_ID = ? ORDER BY p.PaperID, pq.QuestionOrder, pq.Quest_ID")) {
             ps.setInt(1, examId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

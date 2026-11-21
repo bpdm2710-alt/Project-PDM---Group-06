@@ -199,13 +199,28 @@ public final class QuestionDAO {
         return Jdbc.scalar(c, "SELECT COUNT(*) FROM ANSWER WHERE Quest_ID = ?", questionId);
     }
 
+    /** On how many papers of PUBLISHED exams the question sits. */
     public static int publishedExamUseCount(Connection c, int questionId) throws SQLException {
-        return Jdbc.scalar(c, "SELECT COUNT(*) FROM CONTAINS ct JOIN EXAMINATION e ON e.Exam_ID = ct.Exam_ID " +
-                "WHERE ct.Quest_ID = ? AND e.Status = 'PUBLISHED'", questionId);
+        return Jdbc.scalar(c, "SELECT COUNT(*) FROM PAPER_QUESTION pq JOIN PAPER p ON p.PaperKey = pq.PaperKey " +
+                "JOIN EXAMINATION e ON e.Exam_ID = p.Exam_ID " +
+                "WHERE pq.Quest_ID = ? AND e.Status = 'PUBLISHED'", questionId);
     }
 
+    /** On how many papers (any exam, any status) the question currently sits. */
+    public static int paperUseCount(Connection c, int questionId) throws SQLException {
+        return Jdbc.scalar(c, "SELECT COUNT(*) FROM PAPER_QUESTION WHERE Quest_ID = ?", questionId);
+    }
+
+    /** Attempts made on papers that contain the question (their wording/topic is frozen by a trigger). */
+    public static int attemptedCount(Connection c, int questionId) throws SQLException {
+        return Jdbc.scalar(c, "SELECT COUNT(*) FROM PAPER_QUESTION pq JOIN ATTEMPT a ON a.PaperKey = pq.PaperKey " +
+                "WHERE pq.Quest_ID = ?", questionId);
+    }
+
+    /** Takes the question off every paper and drops its marks rows (only legal while nobody attempted). */
     public static void removeFromAllPapers(Connection c, int questionId) throws SQLException {
-        Jdbc.exec(c, "DELETE FROM CONTAINS WHERE Quest_ID = ?", questionId);
+        Jdbc.exec(c, "DELETE FROM PAPER_QUESTION WHERE Quest_ID = ?", questionId);
+        Jdbc.exec(c, "DELETE FROM EXAM_QUESTION_MARKS WHERE Quest_ID = ?", questionId);
     }
 
     private static String likeEscape(String s) {

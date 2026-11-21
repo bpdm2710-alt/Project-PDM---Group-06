@@ -12,7 +12,7 @@ import java.sql.SQLException;
  * Login rules. The query is in {@link UserDAO}; the role comes from which subtype table
  * (STUDENT / INSTRUCTOR) holds the user.
  *
- * NOTE: Password_hash_ currently holds the plain password (seed data does),
+ * NOTE: USER.Password_hash currently holds the plain password (seed data does),
  * so the comparison is plain. When the team starts storing real hashes,
  * change only {@link #passwordMatches}.
  */

@@ -18,7 +18,7 @@ public final class UserDAO {
     /** @return null when no user has that email (case-insensitive). */
     public static LoginRow findByEmail(Connection c, String email) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
-                "SELECT u.User_ID, u.FirstName, u.LastName, u.Email, u.Password_hash_, " +
+                "SELECT u.User_ID, u.FirstName, u.LastName, u.Email, u.Password_hash, " +
                 "       (s.User_ID IS NOT NULL) AS is_student, " +
                 "       (i.User_ID IS NOT NULL) AS is_instructor " +
                 "FROM `USER` u " +
@@ -31,7 +31,7 @@ public final class UserDAO {
                     return null;
                 }
                 return new LoginRow(rs.getInt("User_ID"), rs.getString("FirstName"),
-                        rs.getString("LastName"), rs.getString("Email"), rs.getString("Password_hash_"),
+                        rs.getString("LastName"), rs.getString("Email"), rs.getString("Password_hash"),
                         rs.getBoolean("is_student"), rs.getBoolean("is_instructor"));
             }
         }

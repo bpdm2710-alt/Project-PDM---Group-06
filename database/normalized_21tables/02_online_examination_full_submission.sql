@@ -3,11 +3,10 @@
 -- Group 06 | Topic 20: Online Examination System
 -- Target DBMS: MySQL 8.0.16+ / MySQL 8.4 (InnoDB, utf8mb4_0900_ai_ci)
 -- Schema Design: 21 Normalized Relations (All in BCNF; Business Rules Master v2 BR-01..BR-50)
--- Dialect Notes (per Assignment Sec 2.3):
---   * REGEXP_LIKE() and named CHECK constraints require MySQL 8.0.16+.
---   * 'c' match_type in REGEXP_LIKE enforces case-sensitive Semester format.
---   * utf8mb4_0900_ai_ci provides case-insensitive Email uniqueness.
---   * AUTO_INCREMENT is MySQL syntax for surrogate PaperKey.
+-- Naming convention: ALL TABLE names are UPPER CASE (MySQL on Linux/Aiven is case-sensitive,
+--   lower_case_table_names=0). Column, view, trigger and procedure names keep their own case.
+-- Revision: AUTO_INCREMENT on USER/COURSE/TOPIC/QUESTION/EXAMINATION/REGISTRATION ids (app inserts rely on it);
+--           + EXAMINATION.Status (DRAFT/PUBLISHED), Exam_date NULLable (= not scheduled yet).
 -- ============================================================================
 
 DROP DATABASE IF EXISTS `Online_Examination`;
@@ -17,10 +16,10 @@ CREATE DATABASE `Online_Examination`
 USE `Online_Examination`;
 
 -- ----------------------------------------------------------------------------
--- 1. user (Superclass; Email is an enforced alternate candidate key)
+-- 1. USER (Superclass; Email is an enforced alternate candidate key)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `user` (
-  `User_ID`       INT          NOT NULL,
+CREATE TABLE `USER` (
+  `User_ID`       INT          NOT NULL AUTO_INCREMENT,
   `FirstName`     VARCHAR(50)  NOT NULL,
   `LastName`      VARCHAR(50)  NOT NULL,
   `DOB`           DATE         NOT NULL,
@@ -35,49 +34,49 @@ CREATE TABLE `user` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 2. user_phone (1NF extraction of multivalued Phone; VARCHAR preserves '+' & 0)
+-- 2. USER_PHONE (1NF extraction of multivalued Phone; VARCHAR preserves '+' & 0)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `user_phone` (
+CREATE TABLE `USER_PHONE` (
   `Phone`   VARCHAR(20) NOT NULL,
   `User_ID` INT         NOT NULL,
   CONSTRAINT `pk_user_phone` PRIMARY KEY (`Phone`, `User_ID`),
   CONSTRAINT `chk_user_phone_nonempty` CHECK (CHAR_LENGTH(TRIM(`Phone`)) >= 7),
   CONSTRAINT `fk_user_phone_user`
-    FOREIGN KEY (`User_ID`) REFERENCES `user` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `USER` (`User_ID`)
     ON DELETE CASCADE ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 3. student (ISA subtype of user; total + disjoint guarded by procs/triggers)
+-- 3. STUDENT (ISA subtype of user; total + disjoint guarded by procs/triggers)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `student` (
+CREATE TABLE `STUDENT` (
   `User_ID`         INT NOT NULL,
   `Enrollment_year` INT NOT NULL,
   CONSTRAINT `pk_student` PRIMARY KEY (`User_ID`),
   CONSTRAINT `chk_student_enroll_year` CHECK (`Enrollment_year` BETWEEN 1990 AND 2100),
   CONSTRAINT `fk_student_user`
-    FOREIGN KEY (`User_ID`) REFERENCES `user` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `USER` (`User_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 4. instructor (ISA subtype of user; total + disjoint guarded by procs/triggers)
+-- 4. INSTRUCTOR (ISA subtype of user; total + disjoint guarded by procs/triggers)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `instructor` (
+CREATE TABLE `INSTRUCTOR` (
   `User_ID`    INT          NOT NULL,
   `Department` VARCHAR(100) NOT NULL,
   CONSTRAINT `pk_instructor` PRIMARY KEY (`User_ID`),
   CONSTRAINT `chk_instructor_dept_nonempty` CHECK (CHAR_LENGTH(TRIM(`Department`)) > 0),
   CONSTRAINT `fk_instructor_user`
-    FOREIGN KEY (`User_ID`) REFERENCES `user` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `USER` (`User_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 5. course
+-- 5. COURSE
 -- ----------------------------------------------------------------------------
-CREATE TABLE `course` (
-  `Course_ID` INT          NOT NULL,
+CREATE TABLE `COURSE` (
+  `Course_ID` INT          NOT NULL AUTO_INCREMENT,
   `CName`     VARCHAR(100) NOT NULL,
   `Credits`   INT          NOT NULL,
   CONSTRAINT `pk_course` PRIMARY KEY (`Course_ID`),
@@ -86,68 +85,68 @@ CREATE TABLE `course` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 6. requires (Course prerequisite M:N self-relationship with explicit roles)
+-- 6. REQUIRES (Course prerequisite M:N self-relationship with explicit roles)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `requires` (
+CREATE TABLE `REQUIRES` (
   `Prerequisite_ID` INT NOT NULL,
   `Advanced_ID`     INT NOT NULL,
   CONSTRAINT `pk_requires` PRIMARY KEY (`Prerequisite_ID`, `Advanced_ID`),
   CONSTRAINT `chk_requires_no_self` CHECK (`Prerequisite_ID` <> `Advanced_ID`),
   CONSTRAINT `fk_requires_prereq`
-    FOREIGN KEY (`Prerequisite_ID`) REFERENCES `course` (`Course_ID`)
+    FOREIGN KEY (`Prerequisite_ID`) REFERENCES `COURSE` (`Course_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_requires_advanced`
-    FOREIGN KEY (`Advanced_ID`) REFERENCES `course` (`Course_ID`)
+    FOREIGN KEY (`Advanced_ID`) REFERENCES `COURSE` (`Course_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 7. topic
+-- 7. TOPIC
 -- ----------------------------------------------------------------------------
-CREATE TABLE `topic` (
-  `Topic_ID` INT  NOT NULL,
+CREATE TABLE `TOPIC` (
+  `Topic_ID` INT  NOT NULL AUTO_INCREMENT,
   `Content`  TEXT NOT NULL,
   CONSTRAINT `pk_topic` PRIMARY KEY (`Topic_ID`),
   CONSTRAINT `chk_topic_content_nonempty` CHECK (CHAR_LENGTH(TRIM(`Content`)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 8. covers (Course <-> Topic M:N relationship)
+-- 8. COVERS (Course <-> Topic M:N relationship)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `covers` (
+CREATE TABLE `COVERS` (
   `Course_ID` INT NOT NULL,
   `Topic_ID`  INT NOT NULL,
   CONSTRAINT `pk_covers` PRIMARY KEY (`Course_ID`, `Topic_ID`),
   CONSTRAINT `fk_covers_course`
-    FOREIGN KEY (`Course_ID`) REFERENCES `course` (`Course_ID`)
+    FOREIGN KEY (`Course_ID`) REFERENCES `COURSE` (`Course_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_covers_topic`
-    FOREIGN KEY (`Topic_ID`) REFERENCES `topic` (`Topic_ID`)
+    FOREIGN KEY (`Topic_ID`) REFERENCES `TOPIC` (`Topic_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 9. teach (Instructor <-> Course M:N with Semester in PK per Decision #3)
+-- 9. TEACH (Instructor <-> Course M:N with Semester in PK per Decision #3)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `teach` (
+CREATE TABLE `TEACH` (
   `User_ID`   INT         NOT NULL,
   `Course_ID` INT         NOT NULL,
   `Semester`  VARCHAR(15) NOT NULL,
   CONSTRAINT `pk_teach` PRIMARY KEY (`User_ID`, `Course_ID`, `Semester`),
   CONSTRAINT `chk_teach_semester_fmt` CHECK (REGEXP_LIKE(`Semester`, '^20[0-9]{2}-(S[12]|SU)$', 'c')),
   CONSTRAINT `fk_teach_instructor`
-    FOREIGN KEY (`User_ID`) REFERENCES `instructor` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `INSTRUCTOR` (`User_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_teach_course`
-    FOREIGN KEY (`Course_ID`) REFERENCES `course` (`Course_ID`)
+    FOREIGN KEY (`Course_ID`) REFERENCES `COURSE` (`Course_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 10. question (Superclass; Topic_ID and authoring Instructor User_ID)
+-- 10. QUESTION (Superclass; Topic_ID and authoring Instructor User_ID)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `question` (
-  `Quest_ID`   INT  NOT NULL,
+CREATE TABLE `QUESTION` (
+  `Quest_ID`   INT  NOT NULL AUTO_INCREMENT,
   `Content`    TEXT NOT NULL,
   `Difficulty` INT  NOT NULL,
   `Topic_ID`   INT  NOT NULL,
@@ -156,41 +155,41 @@ CREATE TABLE `question` (
   CONSTRAINT `chk_question_content_nonempty` CHECK (CHAR_LENGTH(TRIM(`Content`)) > 0),
   CONSTRAINT `chk_question_difficulty`       CHECK (`Difficulty` BETWEEN 1 AND 5),
   CONSTRAINT `fk_question_topic`
-    FOREIGN KEY (`Topic_ID`) REFERENCES `topic` (`Topic_ID`)
+    FOREIGN KEY (`Topic_ID`) REFERENCES `TOPIC` (`Topic_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_question_instructor`
-    FOREIGN KEY (`User_ID`) REFERENCES `instructor` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `INSTRUCTOR` (`User_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 11. mcq (ISA subtype of question)
+-- 11. MCQ (ISA subtype of question)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `mcq` (
+CREATE TABLE `MCQ` (
   `Quest_ID` INT NOT NULL,
   CONSTRAINT `pk_mcq` PRIMARY KEY (`Quest_ID`),
   CONSTRAINT `fk_mcq_question`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `question` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `QUESTION` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 12. short_answer (ISA subtype of question)
+-- 12. SHORT_ANSWER (ISA subtype of question)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `short_answer` (
+CREATE TABLE `SHORT_ANSWER` (
   `Quest_ID`   INT  NOT NULL,
   `Answer_key` TEXT NOT NULL,
   CONSTRAINT `pk_short_answer` PRIMARY KEY (`Quest_ID`),
   CONSTRAINT `chk_short_answer_key_nonempty` CHECK (CHAR_LENGTH(TRIM(`Answer_key`)) > 0),
   CONSTRAINT `fk_short_answer_question`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `question` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `QUESTION` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 13. options (Weak entity of mcq; Bool_Correct uses standard TINYINT + CHECK)
+-- 13. OPTIONS (Weak entity of mcq; Bool_Correct uses standard TINYINT + CHECK)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `options` (
+CREATE TABLE `OPTIONS` (
   `Option_no`    INT     NOT NULL,
   `Quest_ID`     INT     NOT NULL,
   `Op_Content`   TEXT    NOT NULL,
@@ -200,35 +199,37 @@ CREATE TABLE `options` (
   CONSTRAINT `chk_options_content`     CHECK (CHAR_LENGTH(TRIM(`Op_Content`)) > 0),
   CONSTRAINT `chk_options_bool_domain` CHECK (`Bool_Correct` IN (0, 1)),
   CONSTRAINT `fk_options_mcq`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `mcq` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `MCQ` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 14. examination (Pass_mark stored as percentage 0.00 - 100.00 per Decision #9)
+-- 14. EXAMINATION (Pass_mark = percentage 0.00-100.00; Status DRAFT/PUBLISHED; Exam_date NULL = not scheduled)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `examination` (
-  `Exam_ID`      INT           NOT NULL,
+CREATE TABLE `EXAMINATION` (
+  `Exam_ID`      INT           NOT NULL AUTO_INCREMENT,
   `Title`        VARCHAR(150)  NOT NULL,
-  `Exam_date`    DATETIME      NOT NULL,
+  `Exam_date`    DATETIME      NULL DEFAULT NULL,
   `Duration`     INT           NOT NULL,
   `Pass_mark`    DECIMAL(5,2)  NOT NULL,
   `Max_attempts` INT           NOT NULL DEFAULT 1,
   `Course_ID`    INT           NOT NULL,
+  `Status`       ENUM('DRAFT','PUBLISHED') NOT NULL DEFAULT 'DRAFT',
   CONSTRAINT `pk_examination` PRIMARY KEY (`Exam_ID`),
   CONSTRAINT `chk_exam_title_nonempty` CHECK (CHAR_LENGTH(TRIM(`Title`)) > 0),
   CONSTRAINT `chk_exam_duration_pos`   CHECK (`Duration` > 0),
   CONSTRAINT `chk_exam_pass_mark_pct`  CHECK (`Pass_mark` BETWEEN 0.00 AND 100.00),
   CONSTRAINT `chk_exam_max_attempts`   CHECK (`Max_attempts` >= 1),
+  CONSTRAINT `chk_exam_published_dated` CHECK (`Status` = 'DRAFT' OR `Exam_date` IS NOT NULL),
   CONSTRAINT `fk_examination_course`
-    FOREIGN KEY (`Course_ID`) REFERENCES `course` (`Course_ID`)
+    FOREIGN KEY (`Course_ID`) REFERENCES `COURSE` (`Course_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 15. paper (Surrogate PaperKey PK + UNIQUE(Exam_ID, PaperID) per Decision #2 B1)
+-- 15. PAPER (Surrogate PaperKey PK + UNIQUE(Exam_ID, PaperID) per Decision #2 B1)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `paper` (
+CREATE TABLE `PAPER` (
   `PaperKey` INT NOT NULL AUTO_INCREMENT,
   `PaperID`  INT NOT NULL,
   `Exam_ID`  INT NOT NULL,
@@ -236,31 +237,31 @@ CREATE TABLE `paper` (
   CONSTRAINT `uq_paper_exam_paperid` UNIQUE (`Exam_ID`, `PaperID`),
   CONSTRAINT `chk_paper_id_pos` CHECK (`PaperID` >= 1),
   CONSTRAINT `fk_paper_examination`
-    FOREIGN KEY (`Exam_ID`) REFERENCES `examination` (`Exam_ID`)
+    FOREIGN KEY (`Exam_ID`) REFERENCES `EXAMINATION` (`Exam_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 16. exam_question_marks (Marks per Exam_ID + Quest_ID per Topic 20 / #7B)
+-- 16. EXAM_QUESTION_MARKS (Marks per Exam_ID + Quest_ID per Topic 20 / #7B)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `exam_question_marks` (
+CREATE TABLE `EXAM_QUESTION_MARKS` (
   `Exam_ID`  INT          NOT NULL,
   `Quest_ID` INT          NOT NULL,
   `Marks`    DECIMAL(5,2) NOT NULL,
   CONSTRAINT `pk_exam_question_marks` PRIMARY KEY (`Exam_ID`, `Quest_ID`),
   CONSTRAINT `chk_eqm_marks_pos` CHECK (`Marks` > 0.00),
   CONSTRAINT `fk_eqm_examination`
-    FOREIGN KEY (`Exam_ID`) REFERENCES `examination` (`Exam_ID`)
+    FOREIGN KEY (`Exam_ID`) REFERENCES `EXAMINATION` (`Exam_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_eqm_question`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `question` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `QUESTION` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 17. paper_question (Layout and question ordering per paper; BCNF)
+-- 17. PAPER_QUESTION (Layout and question ordering per paper; BCNF)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `paper_question` (
+CREATE TABLE `PAPER_QUESTION` (
   `PaperKey`      INT NOT NULL,
   `Quest_ID`      INT NOT NULL,
   `QuestionOrder` INT NOT NULL,
@@ -268,35 +269,35 @@ CREATE TABLE `paper_question` (
   CONSTRAINT `uq_pq_paper_order` UNIQUE (`PaperKey`, `QuestionOrder`),
   CONSTRAINT `chk_pq_order_pos`  CHECK (`QuestionOrder` >= 1),
   CONSTRAINT `fk_pq_paper`
-    FOREIGN KEY (`PaperKey`) REFERENCES `paper` (`PaperKey`)
+    FOREIGN KEY (`PaperKey`) REFERENCES `PAPER` (`PaperKey`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_pq_question`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `question` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `QUESTION` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 18. registration (One registration per student-examination pair)
+-- 18. REGISTRATION (One registration per student-examination pair)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `registration` (
-  `RegisID`   INT      NOT NULL,
+CREATE TABLE `REGISTRATION` (
+  `RegisID`   INT      NOT NULL AUTO_INCREMENT,
   `RegisDate` DATETIME NOT NULL,
   `User_ID`   INT      NOT NULL,
   `Exam_ID`   INT      NOT NULL,
   CONSTRAINT `pk_registration` PRIMARY KEY (`RegisID`),
   CONSTRAINT `uq_registration_student_exam` UNIQUE (`User_ID`, `Exam_ID`),
   CONSTRAINT `fk_registration_student`
-    FOREIGN KEY (`User_ID`) REFERENCES `student` (`User_ID`)
+    FOREIGN KEY (`User_ID`) REFERENCES `STUDENT` (`User_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_registration_exam`
-    FOREIGN KEY (`Exam_ID`) REFERENCES `examination` (`Exam_ID`)
+    FOREIGN KEY (`Exam_ID`) REFERENCES `EXAMINATION` (`Exam_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 19. attempt (Exam_ID removed -> BCNF; EndTime NULL = in-progress attempt)
+-- 19. ATTEMPT (Exam_ID removed -> BCNF; EndTime NULL = in-progress attempt)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `attempt` (
+CREATE TABLE `ATTEMPT` (
   `Attempt_no` INT      NOT NULL,
   `RegisID`    INT      NOT NULL,
   `StartTime`  DATETIME NOT NULL,
@@ -306,17 +307,17 @@ CREATE TABLE `attempt` (
   CONSTRAINT `chk_attempt_no_pos`    CHECK (`Attempt_no` >= 1),
   CONSTRAINT `chk_attempt_time_order` CHECK (`EndTime` IS NULL OR `EndTime` >= `StartTime`),
   CONSTRAINT `fk_attempt_registration`
-    FOREIGN KEY (`RegisID`) REFERENCES `registration` (`RegisID`)
+    FOREIGN KEY (`RegisID`) REFERENCES `REGISTRATION` (`RegisID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_attempt_paper`
-    FOREIGN KEY (`PaperKey`) REFERENCES `paper` (`PaperKey`)
+    FOREIGN KEY (`PaperKey`) REFERENCES `PAPER` (`PaperKey`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 20. answer (NULL AnswerText for MCQ/blank; NULL MarkAwarded = ungraded)
+-- 20. ANSWER (NULL AnswerText for MCQ/blank; NULL MarkAwarded = ungraded)
 -- ----------------------------------------------------------------------------
-CREATE TABLE `answer` (
+CREATE TABLE `ANSWER` (
   `Quest_ID`    INT          NOT NULL,
   `Attempt_no`  INT          NOT NULL,
   `RegisID`     INT          NOT NULL,
@@ -325,27 +326,27 @@ CREATE TABLE `answer` (
   CONSTRAINT `pk_answer` PRIMARY KEY (`Quest_ID`, `Attempt_no`, `RegisID`),
   CONSTRAINT `chk_answer_mark_nonneg` CHECK (`MarkAwarded` IS NULL OR `MarkAwarded` >= 0.00),
   CONSTRAINT `fk_answer_question`
-    FOREIGN KEY (`Quest_ID`) REFERENCES `question` (`Quest_ID`)
+    FOREIGN KEY (`Quest_ID`) REFERENCES `QUESTION` (`Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_answer_attempt`
-    FOREIGN KEY (`Attempt_no`, `RegisID`) REFERENCES `attempt` (`Attempt_no`, `RegisID`)
+    FOREIGN KEY (`Attempt_no`, `RegisID`) REFERENCES `ATTEMPT` (`Attempt_no`, `RegisID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- ----------------------------------------------------------------------------
--- 21. select_table (Single-select MCQ PK = (Quest_ID, Attempt_no, RegisID))
+-- 21. SELECT_TABLE (Single-select MCQ PK = (Quest_ID, Attempt_no, RegisID))
 -- ----------------------------------------------------------------------------
-CREATE TABLE `select_table` (
+CREATE TABLE `SELECT_TABLE` (
   `Option_no`  INT NOT NULL,
   `Quest_ID`   INT NOT NULL,
   `Attempt_no` INT NOT NULL,
   `RegisID`    INT NOT NULL,
   CONSTRAINT `pk_select_table` PRIMARY KEY (`Quest_ID`, `Attempt_no`, `RegisID`),
   CONSTRAINT `fk_select_option`
-    FOREIGN KEY (`Option_no`, `Quest_ID`) REFERENCES `options` (`Option_no`, `Quest_ID`)
+    FOREIGN KEY (`Option_no`, `Quest_ID`) REFERENCES `OPTIONS` (`Option_no`, `Quest_ID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_select_answer`
-    FOREIGN KEY (`Quest_ID`, `Attempt_no`, `RegisID`) REFERENCES `answer` (`Quest_ID`, `Attempt_no`, `RegisID`)
+    FOREIGN KEY (`Quest_ID`, `Attempt_no`, `RegisID`) REFERENCES `ANSWER` (`Quest_ID`, `Attempt_no`, `RegisID`)
     ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -353,14 +354,14 @@ CREATE TABLE `select_table` (
 -- PURPOSEFUL SECONDARY INDEXES (Assignment Sec 2.3 requirement)
 -- ============================================================================
 -- Speeds up Instructor Question Bank filtering by topic & difficulty:
-CREATE INDEX `idx_question_topic_diff`   ON `question` (`Topic_ID`, `Difficulty`);
+CREATE INDEX `idx_question_topic_diff`   ON `QUESTION` (`Topic_ID`, `Difficulty`);
 -- Speeds up Student "My Exams" / course exam schedule lookups:
-CREATE INDEX `idx_examination_course_date` ON `examination` (`Course_ID`, `Exam_date`);
+CREATE INDEX `idx_examination_course_date` ON `EXAMINATION` (`Course_ID`, `Exam_date`);
 -- Speeds up Exam->Registration->Attempt analytical joins (Topic 20 Queries #3-#5):
-CREATE INDEX `idx_registration_exam_user` ON `registration` (`Exam_ID`, `User_ID`);
-CREATE INDEX `idx_attempt_paper`          ON `attempt` (`PaperKey`);
+CREATE INDEX `idx_registration_exam_user` ON `REGISTRATION` (`Exam_ID`, `User_ID`);
+CREATE INDEX `idx_attempt_paper`          ON `ATTEMPT` (`PaperKey`);
 -- Speeds up retrieving all answers for a single attempt (Query #2 & Results screen):
-CREATE INDEX `idx_answer_attempt`         ON `answer` (`RegisID`, `Attempt_no`);
+CREATE INDEX `idx_answer_attempt`         ON `ANSWER` (`RegisID`, `Attempt_no`);
 
 -- ============================================================================
 -- DERIVED VIEWS (EER Derived Attributes & Query #9 Representative Attempt)
@@ -372,9 +373,9 @@ SELECT
   p.`PaperID`,
   COALESCE(SUM(eqm.`Marks`), 0.00) AS `TotalMarks`,
   COUNT(pq.`Quest_ID`)             AS `QuestionCount`
-FROM `paper` p
-LEFT JOIN `paper_question` pq       ON pq.`PaperKey` = p.`PaperKey`
-LEFT JOIN `exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
+FROM `PAPER` p
+LEFT JOIN `PAPER_QUESTION` pq       ON pq.`PaperKey` = p.`PaperKey`
+LEFT JOIN `EXAM_QUESTION_MARKS` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
 GROUP BY p.`PaperKey`, p.`Exam_ID`, p.`PaperID`;
 
 CREATE VIEW `v_attempt_scores` AS
@@ -420,13 +421,13 @@ SELECT
     END
     ELSE NULL
   END                                                                     AS `IsPassed`
-FROM `attempt` a
-JOIN `registration` r               ON r.`RegisID` = a.`RegisID`
-JOIN `examination` e                ON e.`Exam_ID` = r.`Exam_ID`
-JOIN `paper` p                      ON p.`PaperKey` = a.`PaperKey`
-LEFT JOIN `paper_question` pq       ON pq.`PaperKey` = a.`PaperKey`
-LEFT JOIN `exam_question_marks` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
-LEFT JOIN `answer` an               ON an.`Quest_ID` = pq.`Quest_ID`
+FROM `ATTEMPT` a
+JOIN `REGISTRATION` r               ON r.`RegisID` = a.`RegisID`
+JOIN `EXAMINATION` e                ON e.`Exam_ID` = r.`Exam_ID`
+JOIN `PAPER` p                      ON p.`PaperKey` = a.`PaperKey`
+LEFT JOIN `PAPER_QUESTION` pq       ON pq.`PaperKey` = a.`PaperKey`
+LEFT JOIN `EXAM_QUESTION_MARKS` eqm ON eqm.`Exam_ID` = p.`Exam_ID` AND eqm.`Quest_ID` = pq.`Quest_ID`
+LEFT JOIN `ANSWER` an               ON an.`Quest_ID` = pq.`Quest_ID`
                                    AND an.`Attempt_no` = a.`Attempt_no`
                                    AND an.`RegisID` = a.`RegisID`
 GROUP BY
@@ -450,6 +451,16 @@ SELECT
 FROM ranked
 WHERE rn = 1;
 
+
+-- Shared view from PDMProjectQuery.sql: average awarded mark per topic.
+CREATE VIEW `vw_AverageScoreByTopic` AS
+SELECT T.`Topic_ID`, T.`Content` AS `Topic_Name`, AVG(A.`MarkAwarded`) AS `Average_Score`
+FROM `TOPIC` T
+JOIN `QUESTION` Q ON T.`Topic_ID` = Q.`Topic_ID`
+JOIN `ANSWER` A   ON Q.`Quest_ID` = A.`Quest_ID`
+WHERE A.`MarkAwarded` IS NOT NULL
+GROUP BY T.`Topic_ID`, T.`Content`;
+
 -- ============================================================================
 -- CROSS-TABLE TRIGGERS & HISTORICAL FREEZE GUARDS
 -- ============================================================================
@@ -457,44 +468,44 @@ DELIMITER $$
 
 -- 1) ISA Disjointness Guards (BR-05, BR-17)
 CREATE TRIGGER `trg_student_bi_disjoint`
-BEFORE INSERT ON `student`
+BEFORE INSERT ON `STUDENT`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `instructor` WHERE `User_ID` = NEW.`User_ID`) THEN
+  IF EXISTS (SELECT 1 FROM `INSTRUCTOR` WHERE `User_ID` = NEW.`User_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: User already belongs to instructor subtype.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_instructor_bi_disjoint`
-BEFORE INSERT ON `instructor`
+BEFORE INSERT ON `INSTRUCTOR`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `student` WHERE `User_ID` = NEW.`User_ID`) THEN
+  IF EXISTS (SELECT 1 FROM `STUDENT` WHERE `User_ID` = NEW.`User_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: User already belongs to student subtype.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_mcq_bi_disjoint`
-BEFORE INSERT ON `mcq`
+BEFORE INSERT ON `MCQ`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `short_answer` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+  IF EXISTS (SELECT 1 FROM `SHORT_ANSWER` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: Question already belongs to short_answer subtype.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_short_answer_bi_disjoint`
-BEFORE INSERT ON `short_answer`
+BEFORE INSERT ON `SHORT_ANSWER`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+  IF EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: Question already belongs to mcq subtype.';
   END IF;
 END$$
 
 -- 2) Prerequisite DAG Acyclicity Guard (BR-10)
 CREATE TRIGGER `trg_requires_bi_no_cycle`
-BEFORE INSERT ON `requires`
+BEFORE INSERT ON `REQUIRES`
 FOR EACH ROW
 BEGIN
   IF NEW.`Prerequisite_ID` <> NEW.`Advanced_ID` AND EXISTS (
@@ -502,7 +513,7 @@ BEGIN
       SELECT NEW.`Advanced_ID` AS cid
       UNION
       SELECT r.`Advanced_ID`
-      FROM `requires` r
+      FROM `REQUIRES` r
       JOIN reach ON r.`Prerequisite_ID` = reach.cid
     )
     SELECT 1 FROM reach WHERE cid = NEW.`Prerequisite_ID` LIMIT 1
@@ -512,7 +523,7 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_requires_bu_no_cycle`
-BEFORE UPDATE ON `requires`
+BEFORE UPDATE ON `REQUIRES`
 FOR EACH ROW
 BEGIN
   IF NEW.`Prerequisite_ID` <> NEW.`Advanced_ID` AND EXISTS (
@@ -520,7 +531,7 @@ BEGIN
       SELECT NEW.`Advanced_ID` AS cid
       UNION
       SELECT r.`Advanced_ID`
-      FROM `requires` r
+      FROM `REQUIRES` r
       JOIN reach ON r.`Prerequisite_ID` = reach.cid
       WHERE NOT (r.`Prerequisite_ID` = OLD.`Prerequisite_ID` AND r.`Advanced_ID` = OLD.`Advanced_ID`)
     )
@@ -532,13 +543,13 @@ END$$
 
 -- 3) Question Topic, Freeze & Covers Alignment Guards (BR-21, BR-30, BR-43)
 CREATE TRIGGER `trg_question_bu_freeze_and_topic`
-BEFORE UPDATE ON `question`
+BEFORE UPDATE ON `QUESTION`
 FOR EACH ROW
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM `paper_question` pq
-    JOIN `attempt` a ON a.`PaperKey` = pq.`PaperKey`
+    FROM `PAPER_QUESTION` pq
+    JOIN `ATTEMPT` a ON a.`PaperKey` = pq.`PaperKey`
     WHERE pq.`Quest_ID` = OLD.`Quest_ID`
   ) THEN
     IF NEW.`Content` <> OLD.`Content` OR NEW.`Topic_ID` <> OLD.`Topic_ID` THEN
@@ -548,11 +559,11 @@ BEGIN
   IF NEW.`Topic_ID` <> OLD.`Topic_ID` THEN
     IF EXISTS (
       SELECT 1
-      FROM `exam_question_marks` eqm
-      JOIN `examination` e ON e.`Exam_ID` = eqm.`Exam_ID`
+      FROM `EXAM_QUESTION_MARKS` eqm
+      JOIN `EXAMINATION` e ON e.`Exam_ID` = eqm.`Exam_ID`
       WHERE eqm.`Quest_ID` = OLD.`Quest_ID`
         AND NOT EXISTS (
-          SELECT 1 FROM `covers` cv
+          SELECT 1 FROM `COVERS` cv
           WHERE cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = NEW.`Topic_ID`
         )
     ) THEN
@@ -562,14 +573,14 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_covers_bd_in_use`
-BEFORE DELETE ON `covers`
+BEFORE DELETE ON `COVERS`
 FOR EACH ROW
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM `exam_question_marks` eqm
-    JOIN `examination` e ON e.`Exam_ID` = eqm.`Exam_ID`
-    JOIN `question` q    ON q.`Quest_ID` = eqm.`Quest_ID`
+    FROM `EXAM_QUESTION_MARKS` eqm
+    JOIN `EXAMINATION` e ON e.`Exam_ID` = eqm.`Exam_ID`
+    JOIN `QUESTION` q    ON q.`Quest_ID` = eqm.`Quest_ID`
     WHERE e.`Course_ID` = OLD.`Course_ID` AND q.`Topic_ID` = OLD.`Topic_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot remove covers link: examination questions still rely on this course-topic mapping.';
@@ -577,14 +588,14 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_covers_bu_in_use`
-BEFORE UPDATE ON `covers`
+BEFORE UPDATE ON `COVERS`
 FOR EACH ROW
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM `exam_question_marks` eqm
-    JOIN `examination` e ON e.`Exam_ID` = eqm.`Exam_ID`
-    JOIN `question` q    ON q.`Quest_ID` = eqm.`Quest_ID`
+    FROM `EXAM_QUESTION_MARKS` eqm
+    JOIN `EXAMINATION` e ON e.`Exam_ID` = eqm.`Exam_ID`
+    JOIN `QUESTION` q    ON q.`Quest_ID` = eqm.`Quest_ID`
     WHERE e.`Course_ID` = OLD.`Course_ID` AND q.`Topic_ID` = OLD.`Topic_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot update covers link while referenced by examination questions.';
@@ -593,40 +604,40 @@ END$$
 
 -- 4) Options Integrity & Historical Freeze Guards (BR-20, BR-43)
 CREATE TRIGGER `trg_options_bi_freeze`
-BEFORE INSERT ON `options`
+BEFORE INSERT ON `OPTIONS`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `answer` WHERE `Quest_ID` = NEW.`Quest_ID`)
+  IF EXISTS (SELECT 1 FROM `ANSWER` WHERE `Quest_ID` = NEW.`Quest_ID`)
      OR EXISTS (
-       SELECT 1 FROM `paper_question` pq
-       JOIN `attempt` a ON a.`PaperKey` = pq.`PaperKey`
+       SELECT 1 FROM `PAPER_QUESTION` pq
+       JOIN `ATTEMPT` a ON a.`PaperKey` = pq.`PaperKey`
        WHERE pq.`Quest_ID` = NEW.`Quest_ID`
      ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot add options to an already attempted MCQ.';
   END IF;
   IF NEW.`Bool_Correct` = 1
-     AND EXISTS (SELECT 1 FROM `paper_question` WHERE `Quest_ID` = NEW.`Quest_ID`)
-     AND EXISTS (SELECT 1 FROM `options` WHERE `Quest_ID` = NEW.`Quest_ID` AND `Bool_Correct` = 1) THEN
+     AND EXISTS (SELECT 1 FROM `PAPER_QUESTION` WHERE `Quest_ID` = NEW.`Quest_ID`)
+     AND EXISTS (SELECT 1 FROM `OPTIONS` WHERE `Quest_ID` = NEW.`Quest_ID` AND `Bool_Correct` = 1) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Single-answer MCQ in an active paper cannot have more than one correct option.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_options_bu_checks`
-BEFORE UPDATE ON `options`
+BEFORE UPDATE ON `OPTIONS`
 FOR EACH ROW
 BEGIN
   DECLARE v_correct INT;
-  IF EXISTS (SELECT 1 FROM `answer` WHERE `Quest_ID` = OLD.`Quest_ID`)
+  IF EXISTS (SELECT 1 FROM `ANSWER` WHERE `Quest_ID` = OLD.`Quest_ID`)
      OR EXISTS (
-       SELECT 1 FROM `paper_question` pq
-       JOIN `attempt` a ON a.`PaperKey` = pq.`PaperKey`
+       SELECT 1 FROM `PAPER_QUESTION` pq
+       JOIN `ATTEMPT` a ON a.`PaperKey` = pq.`PaperKey`
        WHERE pq.`Quest_ID` = OLD.`Quest_ID`
      ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot modify options of an already attempted MCQ.';
   END IF;
-  IF EXISTS (SELECT 1 FROM `paper_question` WHERE `Quest_ID` = OLD.`Quest_ID`) AND NEW.`Bool_Correct` <> OLD.`Bool_Correct` THEN
+  IF EXISTS (SELECT 1 FROM `PAPER_QUESTION` WHERE `Quest_ID` = OLD.`Quest_ID`) AND NEW.`Bool_Correct` <> OLD.`Bool_Correct` THEN
     SELECT SUM(CASE WHEN `Bool_Correct` = 1 THEN 1 ELSE 0 END) INTO v_correct
-    FROM `options` WHERE `Quest_ID` = OLD.`Quest_ID`;
+    FROM `OPTIONS` WHERE `Quest_ID` = OLD.`Quest_ID`;
     SET v_correct = COALESCE(v_correct, 0) - OLD.`Bool_Correct` + NEW.`Bool_Correct`;
     IF v_correct <> 1 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'MCQ in a paper must keep exactly one correct option (Bool_Correct = 1).';
@@ -635,20 +646,20 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_options_bd_checks`
-BEFORE DELETE ON `options`
+BEFORE DELETE ON `OPTIONS`
 FOR EACH ROW
 BEGIN
   DECLARE v_total INT;
-  IF EXISTS (SELECT 1 FROM `answer` WHERE `Quest_ID` = OLD.`Quest_ID`)
+  IF EXISTS (SELECT 1 FROM `ANSWER` WHERE `Quest_ID` = OLD.`Quest_ID`)
      OR EXISTS (
-       SELECT 1 FROM `paper_question` pq
-       JOIN `attempt` a ON a.`PaperKey` = pq.`PaperKey`
+       SELECT 1 FROM `PAPER_QUESTION` pq
+       JOIN `ATTEMPT` a ON a.`PaperKey` = pq.`PaperKey`
        WHERE pq.`Quest_ID` = OLD.`Quest_ID`
      ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot delete options of an already attempted MCQ.';
   END IF;
-  IF EXISTS (SELECT 1 FROM `paper_question` WHERE `Quest_ID` = OLD.`Quest_ID`) THEN
-    SELECT COUNT(*) INTO v_total FROM `options` WHERE `Quest_ID` = OLD.`Quest_ID`;
+  IF EXISTS (SELECT 1 FROM `PAPER_QUESTION` WHERE `Quest_ID` = OLD.`Quest_ID`) THEN
+    SELECT COUNT(*) INTO v_total FROM `OPTIONS` WHERE `Quest_ID` = OLD.`Quest_ID`;
     IF v_total - 1 < 2 OR OLD.`Bool_Correct` = 1 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot delete option: active paper MCQ requires >=2 options and 1 correct option.';
     END IF;
@@ -656,13 +667,13 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_short_answer_bu_freeze`
-BEFORE UPDATE ON `short_answer`
+BEFORE UPDATE ON `SHORT_ANSWER`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `answer` WHERE `Quest_ID` = OLD.`Quest_ID`)
+  IF EXISTS (SELECT 1 FROM `ANSWER` WHERE `Quest_ID` = OLD.`Quest_ID`)
      OR EXISTS (
-       SELECT 1 FROM `paper_question` pq
-       JOIN `attempt` a ON a.`PaperKey` = pq.`PaperKey`
+       SELECT 1 FROM `PAPER_QUESTION` pq
+       JOIN `ATTEMPT` a ON a.`PaperKey` = pq.`PaperKey`
        WHERE pq.`Quest_ID` = OLD.`Quest_ID`
      ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot modify Answer_key after attempts exist.';
@@ -671,14 +682,14 @@ END$$
 
 -- 5) exam_question_marks Guards (BR-27, BR-29, BR-30, BR-38, BR-43)
 CREATE TRIGGER `trg_eqm_bi_topic`
-BEFORE INSERT ON `exam_question_marks`
+BEFORE INSERT ON `EXAM_QUESTION_MARKS`
 FOR EACH ROW
 BEGIN
   IF NOT EXISTS (
     SELECT 1
-    FROM `examination` e
-    JOIN `question` q ON q.`Quest_ID` = NEW.`Quest_ID`
-    JOIN `covers` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
+    FROM `EXAMINATION` e
+    JOIN `QUESTION` q ON q.`Quest_ID` = NEW.`Quest_ID`
+    JOIN `COVERS` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
     WHERE e.`Exam_ID` = NEW.`Exam_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Question topic is not covered by the course of this examination.';
@@ -686,13 +697,13 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_eqm_bu_checks`
-BEFORE UPDATE ON `exam_question_marks`
+BEFORE UPDATE ON `EXAM_QUESTION_MARKS`
 FOR EACH ROW
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM `paper` p
-    JOIN `attempt` a ON a.`PaperKey` = p.`PaperKey`
+    FROM `PAPER` p
+    JOIN `ATTEMPT` a ON a.`PaperKey` = p.`PaperKey`
     WHERE p.`Exam_ID` = OLD.`Exam_ID`
   ) AND (NEW.`Marks` <> OLD.`Marks` OR NEW.`Exam_ID` <> OLD.`Exam_ID` OR NEW.`Quest_ID` <> OLD.`Quest_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot alter Marks after attempts exist for this examination.';
@@ -700,17 +711,17 @@ BEGIN
   IF (NEW.`Exam_ID` <> OLD.`Exam_ID` OR NEW.`Quest_ID` <> OLD.`Quest_ID`) THEN
     IF EXISTS (
       SELECT 1
-      FROM `paper_question` pq
-      JOIN `paper` p ON p.`PaperKey` = pq.`PaperKey`
+      FROM `PAPER_QUESTION` pq
+      JOIN `PAPER` p ON p.`PaperKey` = pq.`PaperKey`
       WHERE p.`Exam_ID` = OLD.`Exam_ID` AND pq.`Quest_ID` = OLD.`Quest_ID`
     ) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot reassign exam_question_marks identity while a paper uses it.';
     END IF;
     IF NOT EXISTS (
       SELECT 1
-      FROM `examination` e
-      JOIN `question` q ON q.`Quest_ID` = NEW.`Quest_ID`
-      JOIN `covers` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
+      FROM `EXAMINATION` e
+      JOIN `QUESTION` q ON q.`Quest_ID` = NEW.`Quest_ID`
+      JOIN `COVERS` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
       WHERE e.`Exam_ID` = NEW.`Exam_ID`
     ) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Question topic is not covered by the course of this examination.';
@@ -718,9 +729,9 @@ BEGIN
   END IF;
   IF EXISTS (
     SELECT 1
-    FROM `answer` an
-    JOIN `attempt` a ON a.`Attempt_no` = an.`Attempt_no` AND a.`RegisID` = an.`RegisID`
-    JOIN `paper` p   ON p.`PaperKey` = a.`PaperKey`
+    FROM `ANSWER` an
+    JOIN `ATTEMPT` a ON a.`Attempt_no` = an.`Attempt_no` AND a.`RegisID` = an.`RegisID`
+    JOIN `PAPER` p   ON p.`PaperKey` = a.`PaperKey`
     WHERE p.`Exam_ID` = OLD.`Exam_ID`
       AND an.`Quest_ID` = OLD.`Quest_ID`
       AND an.`MarkAwarded` > NEW.`Marks`
@@ -730,13 +741,13 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_eqm_bd_in_use`
-BEFORE DELETE ON `exam_question_marks`
+BEFORE DELETE ON `EXAM_QUESTION_MARKS`
 FOR EACH ROW
 BEGIN
   IF EXISTS (
     SELECT 1
-    FROM `paper_question` pq
-    JOIN `paper` p ON p.`PaperKey` = pq.`PaperKey`
+    FROM `PAPER_QUESTION` pq
+    JOIN `PAPER` p ON p.`PaperKey` = pq.`PaperKey`
     WHERE p.`Exam_ID` = OLD.`Exam_ID` AND pq.`Quest_ID` = OLD.`Quest_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot delete exam_question_marks while question is placed on a paper layout.';
@@ -745,21 +756,21 @@ END$$
 
 -- 6) paper_question Layout, Marks, Topic & MCQ Readiness Guards (BR-20, BR-29, BR-30, BR-43)
 CREATE TRIGGER `trg_pq_bi_checks`
-BEFORE INSERT ON `paper_question`
+BEFORE INSERT ON `PAPER_QUESTION`
 FOR EACH ROW
 BEGIN
   DECLARE v_exam_id INT;
   DECLARE v_opt_cnt INT;
   DECLARE v_cor_cnt INT;
 
-  SELECT `Exam_ID` INTO v_exam_id FROM `paper` WHERE `PaperKey` = NEW.`PaperKey`;
+  SELECT `Exam_ID` INTO v_exam_id FROM `PAPER` WHERE `PaperKey` = NEW.`PaperKey`;
 
-  IF EXISTS (SELECT 1 FROM `attempt` WHERE `PaperKey` = NEW.`PaperKey`) THEN
+  IF EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `PaperKey` = NEW.`PaperKey`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot add questions to a paper with existing attempts.';
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM `exam_question_marks`
+    SELECT 1 FROM `EXAM_QUESTION_MARKS`
     WHERE `Exam_ID` = v_exam_id AND `Quest_ID` = NEW.`Quest_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Missing exam_question_marks entry for (Exam_ID, Quest_ID) before paper placement.';
@@ -767,44 +778,44 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1
-    FROM `examination` e
-    JOIN `question` q ON q.`Quest_ID` = NEW.`Quest_ID`
-    JOIN `covers` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
+    FROM `EXAMINATION` e
+    JOIN `QUESTION` q ON q.`Quest_ID` = NEW.`Quest_ID`
+    JOIN `COVERS` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
     WHERE e.`Exam_ID` = v_exam_id
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Question topic is not covered by the examination course.';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+  IF EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
     SELECT COUNT(*), COALESCE(SUM(CASE WHEN `Bool_Correct` = 1 THEN 1 ELSE 0 END), 0)
       INTO v_opt_cnt, v_cor_cnt
-    FROM `options` WHERE `Quest_ID` = NEW.`Quest_ID`;
+    FROM `OPTIONS` WHERE `Quest_ID` = NEW.`Quest_ID`;
     IF v_opt_cnt < 2 OR v_cor_cnt <> 1 THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'MCQ must have at least 2 options and exactly 1 correct option before paper placement.';
     END IF;
-  ELSEIF NOT EXISTS (SELECT 1 FROM `short_answer` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+  ELSEIF NOT EXISTS (SELECT 1 FROM `SHORT_ANSWER` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: Question has neither mcq nor short_answer subtype.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_pq_bu_checks`
-BEFORE UPDATE ON `paper_question`
+BEFORE UPDATE ON `PAPER_QUESTION`
 FOR EACH ROW
 BEGIN
   DECLARE v_exam_id INT;
   DECLARE v_opt_cnt INT;
   DECLARE v_cor_cnt INT;
 
-  IF EXISTS (SELECT 1 FROM `attempt` WHERE `PaperKey` = OLD.`PaperKey`)
-     OR EXISTS (SELECT 1 FROM `attempt` WHERE `PaperKey` = NEW.`PaperKey`) THEN
+  IF EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `PaperKey` = OLD.`PaperKey`)
+     OR EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `PaperKey` = NEW.`PaperKey`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot modify paper_question layout after attempts exist.';
   END IF;
 
   IF NEW.`PaperKey` <> OLD.`PaperKey` OR NEW.`Quest_ID` <> OLD.`Quest_ID` THEN
-    SELECT `Exam_ID` INTO v_exam_id FROM `paper` WHERE `PaperKey` = NEW.`PaperKey`;
+    SELECT `Exam_ID` INTO v_exam_id FROM `PAPER` WHERE `PaperKey` = NEW.`PaperKey`;
 
     IF NOT EXISTS (
-      SELECT 1 FROM `exam_question_marks`
+      SELECT 1 FROM `EXAM_QUESTION_MARKS`
       WHERE `Exam_ID` = v_exam_id AND `Quest_ID` = NEW.`Quest_ID`
     ) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Missing exam_question_marks entry for (Exam_ID, Quest_ID) before paper placement.';
@@ -812,84 +823,84 @@ BEGIN
 
     IF NOT EXISTS (
       SELECT 1
-      FROM `examination` e
-      JOIN `question` q ON q.`Quest_ID` = NEW.`Quest_ID`
-      JOIN `covers` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
+      FROM `EXAMINATION` e
+      JOIN `QUESTION` q ON q.`Quest_ID` = NEW.`Quest_ID`
+      JOIN `COVERS` cv  ON cv.`Course_ID` = e.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
       WHERE e.`Exam_ID` = v_exam_id
     ) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Question topic is not covered by the examination course.';
     END IF;
 
-    IF EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+    IF EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
       SELECT COUNT(*), COALESCE(SUM(CASE WHEN `Bool_Correct` = 1 THEN 1 ELSE 0 END), 0)
         INTO v_opt_cnt, v_cor_cnt
-      FROM `options` WHERE `Quest_ID` = NEW.`Quest_ID`;
+      FROM `OPTIONS` WHERE `Quest_ID` = NEW.`Quest_ID`;
       IF v_opt_cnt < 2 OR v_cor_cnt <> 1 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'MCQ must have at least 2 options and exactly 1 correct option before paper placement.';
       END IF;
-    ELSEIF NOT EXISTS (SELECT 1 FROM `short_answer` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+    ELSEIF NOT EXISTS (SELECT 1 FROM `SHORT_ANSWER` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ISA violation: Question has neither mcq nor short_answer subtype.';
     END IF;
   END IF;
 END$$
 
 CREATE TRIGGER `trg_pq_bd_freeze`
-BEFORE DELETE ON `paper_question`
+BEFORE DELETE ON `PAPER_QUESTION`
 FOR EACH ROW
 BEGIN
-  IF EXISTS (SELECT 1 FROM `attempt` WHERE `PaperKey` = OLD.`PaperKey`) THEN
+  IF EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `PaperKey` = OLD.`PaperKey`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Historical freeze: cannot remove questions from a paper after attempts exist.';
   END IF;
 END$$
 
 -- 7) Registration Date & Parent Update Guards (BR-32, BR-34, BR-35)
 CREATE TRIGGER `trg_registration_bi_date`
-BEFORE INSERT ON `registration`
+BEFORE INSERT ON `REGISTRATION`
 FOR EACH ROW
 BEGIN
   DECLARE v_exam_date DATETIME;
-  SELECT `Exam_date` INTO v_exam_date FROM `examination` WHERE `Exam_ID` = NEW.`Exam_ID`;
+  SELECT `Exam_date` INTO v_exam_date FROM `EXAMINATION` WHERE `Exam_ID` = NEW.`Exam_ID`;
   IF NEW.`RegisDate` > v_exam_date THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Registration date must be on or before Exam_date.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_registration_bu_guard`
-BEFORE UPDATE ON `registration`
+BEFORE UPDATE ON `REGISTRATION`
 FOR EACH ROW
 BEGIN
   DECLARE v_exam_date DATETIME;
-  IF NEW.`Exam_ID` <> OLD.`Exam_ID` AND EXISTS (SELECT 1 FROM `attempt` WHERE `RegisID` = OLD.`RegisID`) THEN
+  IF NEW.`Exam_ID` <> OLD.`Exam_ID` AND EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `RegisID` = OLD.`RegisID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot change registration.Exam_ID when attempts already exist.';
   END IF;
-  SELECT `Exam_date` INTO v_exam_date FROM `examination` WHERE `Exam_ID` = NEW.`Exam_ID`;
+  SELECT `Exam_date` INTO v_exam_date FROM `EXAMINATION` WHERE `Exam_ID` = NEW.`Exam_ID`;
   IF NEW.`RegisDate` > v_exam_date THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Registration date must be on or before Exam_date.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_paper_bu_guard`
-BEFORE UPDATE ON `paper`
+BEFORE UPDATE ON `PAPER`
 FOR EACH ROW
 BEGIN
   IF NEW.`Exam_ID` <> OLD.`Exam_ID` AND (
-    EXISTS (SELECT 1 FROM `attempt` WHERE `PaperKey` = OLD.`PaperKey`)
-    OR EXISTS (SELECT 1 FROM `paper_question` WHERE `PaperKey` = OLD.`PaperKey`)
+    EXISTS (SELECT 1 FROM `ATTEMPT` WHERE `PaperKey` = OLD.`PaperKey`)
+    OR EXISTS (SELECT 1 FROM `PAPER_QUESTION` WHERE `PaperKey` = OLD.`PaperKey`)
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot reassign paper.Exam_ID when layout or attempts already exist.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_examination_bu_guard`
-BEFORE UPDATE ON `examination`
+BEFORE UPDATE ON `EXAMINATION`
 FOR EACH ROW
 BEGIN
   DECLARE v_max_used INT;
   DECLARE v_has_attempts INT DEFAULT 0;
 
   SELECT EXISTS (
-    SELECT 1 FROM `attempt` a
-    JOIN `registration` r ON r.`RegisID` = a.`RegisID`
+    SELECT 1 FROM `ATTEMPT` a
+    JOIN `REGISTRATION` r ON r.`RegisID` = a.`RegisID`
     WHERE r.`Exam_ID` = OLD.`Exam_ID`
   ) INTO v_has_attempts;
 
@@ -898,22 +909,22 @@ BEGIN
   END IF;
 
   SELECT COALESCE(MAX(a.`Attempt_no`), 0) INTO v_max_used
-  FROM `attempt` a
-  JOIN `registration` r ON r.`RegisID` = a.`RegisID`
+  FROM `ATTEMPT` a
+  JOIN `REGISTRATION` r ON r.`RegisID` = a.`RegisID`
   WHERE r.`Exam_ID` = OLD.`Exam_ID`;
 
   IF NEW.`Max_attempts` < v_max_used THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot lower Max_attempts below largest issued Attempt_no.';
   END IF;
-  IF EXISTS (SELECT 1 FROM `registration` WHERE `Exam_ID` = OLD.`Exam_ID` AND `RegisDate` > NEW.`Exam_date`) THEN
+  IF EXISTS (SELECT 1 FROM `REGISTRATION` WHERE `Exam_ID` = OLD.`Exam_ID` AND `RegisDate` > NEW.`Exam_date`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot move Exam_date earlier than existing registration dates.';
   END IF;
   IF NEW.`Course_ID` <> OLD.`Course_ID` AND EXISTS (
-    SELECT 1 FROM `exam_question_marks` eqm
-    JOIN `question` q ON q.`Quest_ID` = eqm.`Quest_ID`
+    SELECT 1 FROM `EXAM_QUESTION_MARKS` eqm
+    JOIN `QUESTION` q ON q.`Quest_ID` = eqm.`Quest_ID`
     WHERE eqm.`Exam_ID` = OLD.`Exam_ID`
       AND NOT EXISTS (
-        SELECT 1 FROM `covers` cv WHERE cv.`Course_ID` = NEW.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
+        SELECT 1 FROM `COVERS` cv WHERE cv.`Course_ID` = NEW.`Course_ID` AND cv.`Topic_ID` = q.`Topic_ID`
       )
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot change examination Course_ID: existing exam questions fall outside new course topics.';
@@ -922,7 +933,7 @@ END$$
 
 -- 8) Attempt Same-Exam, Non-Empty Paper & Cap Guards (BR-28, BR-33, BR-34, BR-35)
 CREATE TRIGGER `trg_attempt_bi_checks`
-BEFORE INSERT ON `attempt`
+BEFORE INSERT ON `ATTEMPT`
 FOR EACH ROW
 BEGIN
   DECLARE v_reg_exam   INT;
@@ -931,28 +942,28 @@ BEGIN
   DECLARE v_cnt        INT;
 
   SELECT r.`Exam_ID`, e.`Max_attempts` INTO v_reg_exam, v_max_att
-  FROM `registration` r
-  JOIN `examination` e ON e.`Exam_ID` = r.`Exam_ID`
+  FROM `REGISTRATION` r
+  JOIN `EXAMINATION` e ON e.`Exam_ID` = r.`Exam_ID`
   WHERE r.`RegisID` = NEW.`RegisID`;
 
-  SELECT `Exam_ID` INTO v_paper_exam FROM `paper` WHERE `PaperKey` = NEW.`PaperKey`;
+  SELECT `Exam_ID` INTO v_paper_exam FROM `PAPER` WHERE `PaperKey` = NEW.`PaperKey`;
 
   IF v_reg_exam <> v_paper_exam THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Assigned paper belongs to a different examination than the student registration.';
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM `paper_question` WHERE `PaperKey` = NEW.`PaperKey`) THEN
+  IF NOT EXISTS (SELECT 1 FROM `PAPER_QUESTION` WHERE `PaperKey` = NEW.`PaperKey`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot assign an empty paper with zero questions to an attempt.';
   END IF;
 
-  SELECT COUNT(*) INTO v_cnt FROM `attempt` WHERE `RegisID` = NEW.`RegisID`;
+  SELECT COUNT(*) INTO v_cnt FROM `ATTEMPT` WHERE `RegisID` = NEW.`RegisID`;
   IF v_cnt >= v_max_att OR NEW.`Attempt_no` > v_max_att THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Maximum allowed attempts reached for this registration.';
   END IF;
 END$$
 
 CREATE TRIGGER `trg_attempt_bu_checks`
-BEFORE UPDATE ON `attempt`
+BEFORE UPDATE ON `ATTEMPT`
 FOR EACH ROW
 BEGIN
   DECLARE v_max_att INT;
@@ -961,8 +972,8 @@ BEGIN
   END IF;
   IF NEW.`Attempt_no` <> OLD.`Attempt_no` THEN
     SELECT e.`Max_attempts` INTO v_max_att
-    FROM `registration` r
-    JOIN `examination` e ON e.`Exam_ID` = r.`Exam_ID`
+    FROM `REGISTRATION` r
+    JOIN `EXAMINATION` e ON e.`Exam_ID` = r.`Exam_ID`
     WHERE r.`RegisID` = NEW.`RegisID`;
     IF NEW.`Attempt_no` > v_max_att THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Attempt_no cannot exceed examination Max_attempts.';
@@ -972,7 +983,7 @@ END$$
 
 -- 9) Answer Membership, Bounds & MCQ Text Guards (BR-37, BR-38)
 CREATE TRIGGER `trg_answer_bi_checks`
-BEFORE INSERT ON `answer`
+BEFORE INSERT ON `ANSWER`
 FOR EACH ROW
 BEGIN
   DECLARE v_paper_key INT DEFAULT NULL;
@@ -980,23 +991,23 @@ BEGIN
   DECLARE v_max_marks DECIMAL(5,2) DEFAULT NULL;
 
   SELECT a.`PaperKey`, p.`Exam_ID` INTO v_paper_key, v_exam_id
-  FROM `attempt` a
-  JOIN `paper` p ON p.`PaperKey` = a.`PaperKey`
+  FROM `ATTEMPT` a
+  JOIN `PAPER` p ON p.`PaperKey` = a.`PaperKey`
   WHERE a.`Attempt_no` = NEW.`Attempt_no` AND a.`RegisID` = NEW.`RegisID`;
 
   IF v_paper_key IS NULL OR NOT EXISTS (
-    SELECT 1 FROM `paper_question`
+    SELECT 1 FROM `PAPER_QUESTION`
     WHERE `PaperKey` = v_paper_key AND `Quest_ID` = NEW.`Quest_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Answered question does not belong to the attempt assigned paper.';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) AND NEW.`AnswerText` IS NOT NULL THEN
+  IF EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) AND NEW.`AnswerText` IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'AnswerText must be NULL for multiple-choice questions.';
   END IF;
 
   IF NEW.`MarkAwarded` IS NOT NULL THEN
-    SELECT `Marks` INTO v_max_marks FROM `exam_question_marks`
+    SELECT `Marks` INTO v_max_marks FROM `EXAM_QUESTION_MARKS`
     WHERE `Exam_ID` = v_exam_id AND `Quest_ID` = NEW.`Quest_ID`;
     IF v_max_marks IS NULL OR NEW.`MarkAwarded` > v_max_marks THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'MarkAwarded cannot exceed exam_question_marks.Marks.';
@@ -1005,7 +1016,7 @@ BEGIN
 END$$
 
 CREATE TRIGGER `trg_answer_bu_checks`
-BEFORE UPDATE ON `answer`
+BEFORE UPDATE ON `ANSWER`
 FOR EACH ROW
 BEGIN
   DECLARE v_paper_key INT DEFAULT NULL;
@@ -1013,23 +1024,23 @@ BEGIN
   DECLARE v_max_marks DECIMAL(5,2) DEFAULT NULL;
 
   SELECT a.`PaperKey`, p.`Exam_ID` INTO v_paper_key, v_exam_id
-  FROM `attempt` a
-  JOIN `paper` p ON p.`PaperKey` = a.`PaperKey`
+  FROM `ATTEMPT` a
+  JOIN `PAPER` p ON p.`PaperKey` = a.`PaperKey`
   WHERE a.`Attempt_no` = NEW.`Attempt_no` AND a.`RegisID` = NEW.`RegisID`;
 
   IF v_paper_key IS NULL OR NOT EXISTS (
-    SELECT 1 FROM `paper_question`
+    SELECT 1 FROM `PAPER_QUESTION`
     WHERE `PaperKey` = v_paper_key AND `Quest_ID` = NEW.`Quest_ID`
   ) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Answered question does not belong to the attempt assigned paper.';
   END IF;
 
-  IF EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) AND NEW.`AnswerText` IS NOT NULL THEN
+  IF EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) AND NEW.`AnswerText` IS NOT NULL THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'AnswerText must remain NULL for multiple-choice questions.';
   END IF;
 
   IF NEW.`MarkAwarded` IS NOT NULL THEN
-    SELECT `Marks` INTO v_max_marks FROM `exam_question_marks`
+    SELECT `Marks` INTO v_max_marks FROM `EXAM_QUESTION_MARKS`
     WHERE `Exam_ID` = v_exam_id AND `Quest_ID` = NEW.`Quest_ID`;
     IF v_max_marks IS NULL OR NEW.`MarkAwarded` > v_max_marks THEN
       SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'MarkAwarded cannot exceed exam_question_marks.Marks.';
@@ -1039,10 +1050,10 @@ END$$
 
 -- 10) select_table MCQ-Only & Option Question Consistency Guard (BR-40)
 CREATE TRIGGER `trg_select_bi_mcq_only`
-BEFORE INSERT ON `select_table`
+BEFORE INSERT ON `SELECT_TABLE`
 FOR EACH ROW
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM `mcq` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
+  IF NOT EXISTS (SELECT 1 FROM `MCQ` WHERE `Quest_ID` = NEW.`Quest_ID`) THEN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only MCQ questions may have entries in select_table.';
   END IF;
 END$$
@@ -1068,14 +1079,14 @@ BEGIN
   END;
 
   START TRANSACTION;
-    INSERT INTO `user` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`)
+    INSERT INTO `USER` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`)
     VALUES (p_user_id, p_first, p_last, p_dob, LOWER(TRIM(p_email)), p_hash);
 
-    INSERT INTO `student` (`User_ID`, `Enrollment_year`)
+    INSERT INTO `STUDENT` (`User_ID`, `Enrollment_year`)
     VALUES (p_user_id, p_year);
 
     IF p_phone IS NOT NULL AND CHAR_LENGTH(TRIM(p_phone)) > 0 THEN
-      INSERT INTO `user_phone` (`Phone`, `User_ID`) VALUES (TRIM(p_phone), p_user_id);
+      INSERT INTO `USER_PHONE` (`Phone`, `User_ID`) VALUES (TRIM(p_phone), p_user_id);
     END IF;
   COMMIT;
 END$$
@@ -1098,14 +1109,14 @@ BEGIN
   END;
 
   START TRANSACTION;
-    INSERT INTO `user` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`)
+    INSERT INTO `USER` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`)
     VALUES (p_user_id, p_first, p_last, p_dob, LOWER(TRIM(p_email)), p_hash);
 
-    INSERT INTO `instructor` (`User_ID`, `Department`)
+    INSERT INTO `INSTRUCTOR` (`User_ID`, `Department`)
     VALUES (p_user_id, p_dept);
 
     IF p_phone IS NOT NULL AND CHAR_LENGTH(TRIM(p_phone)) > 0 THEN
-      INSERT INTO `user_phone` (`Phone`, `User_ID`) VALUES (TRIM(p_phone), p_user_id);
+      INSERT INTO `USER_PHONE` (`Phone`, `User_ID`) VALUES (TRIM(p_phone), p_user_id);
     END IF;
   COMMIT;
 END$$
@@ -1120,6 +1131,7 @@ BEGIN
   DECLARE v_exam_id INT;
   DECLARE v_max_att INT;
   DECLARE v_cur_cnt INT;
+  DECLARE v_status  VARCHAR(10);
 
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
@@ -1130,21 +1142,25 @@ BEGIN
   START TRANSACTION;
     -- Consistent lock order: examination -> registration to prevent deadlocks
     SELECT `Exam_ID` INTO v_exam_id
-    FROM `registration`
+    FROM `REGISTRATION`
     WHERE `RegisID` = p_regis_id;
 
-    SELECT `Max_attempts` INTO v_max_att
-    FROM `examination`
+    SELECT `Max_attempts`, `Status` INTO v_max_att, v_status
+    FROM `EXAMINATION`
     WHERE `Exam_ID` = v_exam_id
     FOR UPDATE;
 
+    IF v_status <> 'PUBLISHED' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Examination is not published; attempts are not allowed.';
+    END IF;
+
     SELECT `Exam_ID` INTO v_exam_id
-    FROM `registration`
+    FROM `REGISTRATION`
     WHERE `RegisID` = p_regis_id
     FOR UPDATE;
 
     SELECT COUNT(*), COALESCE(MAX(`Attempt_no`), 0) INTO v_cur_cnt, p_attempt_no
-    FROM `attempt`
+    FROM `ATTEMPT`
     WHERE `RegisID` = p_regis_id
     FOR UPDATE;
 
@@ -1154,7 +1170,7 @@ BEGIN
 
     SET p_attempt_no = p_attempt_no + 1;
 
-    INSERT INTO `attempt` (`Attempt_no`, `RegisID`, `StartTime`, `EndTime`, `PaperKey`)
+    INSERT INTO `ATTEMPT` (`Attempt_no`, `RegisID`, `StartTime`, `EndTime`, `PaperKey`)
     VALUES (p_attempt_no, p_regis_id, p_start_time, NULL, p_paper_key);
   COMMIT;
 END$$
@@ -1180,8 +1196,8 @@ BEGIN
 
   START TRANSACTION;
     SELECT a.`EndTime`, p.`Exam_ID` INTO v_end_time, v_exam_id
-    FROM `attempt` a
-    JOIN `paper` p ON p.`PaperKey` = a.`PaperKey`
+    FROM `ATTEMPT` a
+    JOIN `PAPER` p ON p.`PaperKey` = a.`PaperKey`
     WHERE a.`RegisID` = p_regis_id AND a.`Attempt_no` = p_attempt_no
     FOR UPDATE;
 
@@ -1190,22 +1206,22 @@ BEGIN
     END IF;
 
     SELECT `Bool_Correct` INTO v_is_right
-    FROM `options`
+    FROM `OPTIONS`
     WHERE `Quest_ID` = p_quest_id AND `Option_no` = p_option_no;
 
     SELECT `Marks` INTO v_max_marks
-    FROM `exam_question_marks`
+    FROM `EXAM_QUESTION_MARKS`
     WHERE `Exam_ID` = v_exam_id AND `Quest_ID` = p_quest_id;
 
     SET v_awarded = CASE WHEN v_is_right = 1 THEN v_max_marks ELSE 0.00 END;
 
-    INSERT INTO `answer` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`)
+    INSERT INTO `ANSWER` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`)
     VALUES (p_quest_id, p_attempt_no, p_regis_id, NULL, v_awarded)
     ON DUPLICATE KEY UPDATE
       `AnswerText`  = NULL,
       `MarkAwarded` = VALUES(`MarkAwarded`);
 
-    INSERT INTO `select_table` (`Option_no`, `Quest_ID`, `Attempt_no`, `RegisID`)
+    INSERT INTO `SELECT_TABLE` (`Option_no`, `Quest_ID`, `Attempt_no`, `RegisID`)
     VALUES (p_option_no, p_quest_id, p_attempt_no, p_regis_id)
     ON DUPLICATE KEY UPDATE
       `Option_no` = VALUES(`Option_no`);
@@ -1234,7 +1250,7 @@ proc_body: BEGIN
 
   START TRANSACTION;
     SELECT `PaperKey`, `EndTime` INTO v_paper_key, v_end_time
-    FROM `attempt`
+    FROM `ATTEMPT`
     WHERE `RegisID` = p_regis_id AND `Attempt_no` = p_attempt_no
     FOR UPDATE;
 
@@ -1248,19 +1264,19 @@ proc_body: BEGIN
       LEAVE proc_body;
     END IF;
 
-    SELECT `Exam_ID` INTO v_exam_id FROM `paper` WHERE `PaperKey` = v_paper_key;
+    SELECT `Exam_ID` INTO v_exam_id FROM `PAPER` WHERE `PaperKey` = v_paper_key;
 
-    UPDATE `attempt`
+    UPDATE `ATTEMPT`
     SET `EndTime` = p_end_time
     WHERE `RegisID` = p_regis_id AND `Attempt_no` = p_attempt_no;
 
     -- Auto-grade any pre-existing ungraded MCQ rows that have a selection (BR-42)
-    UPDATE `answer` an
-    JOIN `select_table` st
+    UPDATE `ANSWER` an
+    JOIN `SELECT_TABLE` st
       ON st.`Quest_ID` = an.`Quest_ID` AND st.`Attempt_no` = an.`Attempt_no` AND st.`RegisID` = an.`RegisID`
-    JOIN `options` o
+    JOIN `OPTIONS` o
       ON o.`Quest_ID` = st.`Quest_ID` AND o.`Option_no` = st.`Option_no`
-    JOIN `exam_question_marks` eqm
+    JOIN `EXAM_QUESTION_MARKS` eqm
       ON eqm.`Exam_ID` = v_exam_id AND eqm.`Quest_ID` = an.`Quest_ID`
     SET an.`MarkAwarded` = CASE WHEN o.`Bool_Correct` = 1 THEN eqm.`Marks` ELSE 0.00 END
     WHERE an.`RegisID` = p_regis_id
@@ -1268,26 +1284,26 @@ proc_body: BEGIN
       AND an.`MarkAwarded` IS NULL;
 
     -- Award 0.00 to pre-existing blank answers while keeping non-blank short answers NULL (BR-42)
-    UPDATE `answer` an
+    UPDATE `ANSWER` an
     SET an.`MarkAwarded` = 0.00
     WHERE an.`RegisID` = p_regis_id
       AND an.`Attempt_no` = p_attempt_no
       AND an.`MarkAwarded` IS NULL
       AND (an.`AnswerText` IS NULL OR NOT REGEXP_LIKE(an.`AnswerText`, '[^[:space:]]'))
       AND NOT EXISTS (
-        SELECT 1 FROM `select_table` st
+        SELECT 1 FROM `SELECT_TABLE` st
         WHERE st.`Quest_ID`   = an.`Quest_ID`
           AND st.`Attempt_no` = an.`Attempt_no`
           AND st.`RegisID`    = an.`RegisID`
       );
 
     -- Materialize explicit 0.00 marks for any unanswered missing questions (BR-41, BR-42)
-    INSERT INTO `answer` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`)
+    INSERT INTO `ANSWER` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`)
     SELECT pq.`Quest_ID`, p_attempt_no, p_regis_id, NULL, 0.00
-    FROM `paper_question` pq
+    FROM `PAPER_QUESTION` pq
     WHERE pq.`PaperKey` = v_paper_key
       AND NOT EXISTS (
-        SELECT 1 FROM `answer` an
+        SELECT 1 FROM `ANSWER` an
         WHERE an.`Quest_ID`   = pq.`Quest_ID`
           AND an.`Attempt_no` = p_attempt_no
           AND an.`RegisID`    = p_regis_id
@@ -1302,7 +1318,7 @@ DELIMITER ;
 -- Executed with ALL triggers and constraints active (zero disabled checks).
 -- ============================================================================
 
-INSERT INTO `user` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`) VALUES
+INSERT INTO `USER` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Password_hash`) VALUES
   (1, 'Lan', 'Nguyen', '1982-03-14', 'inst01@hcmiu.edu.vn', 'sha256:inst_hash_01'),
   (2, 'Minh', 'Tran', '1980-07-22', 'inst02@hcmiu.edu.vn', 'sha256:inst_hash_02'),
   (3, 'Hoa', 'Le', '1985-11-02', 'inst03@hcmiu.edu.vn', 'sha256:inst_hash_03'),
@@ -1338,7 +1354,7 @@ INSERT INTO `user` (`User_ID`, `FirstName`, `LastName`, `DOB`, `Email`, `Passwor
   (118, 'Vinh', 'Ly', '2005-04-06', 'sv118@student.hcmiu.edu.vn', 'sha256:stu_hash_118'),
   (119, 'Xuan', 'Cao', '2006-08-19', 'sv119@student.hcmiu.edu.vn', 'sha256:stu_hash_119'),
   (120, 'Yen', 'Truong', '2005-11-27', 'sv120@student.hcmiu.edu.vn', 'sha256:stu_hash_120');
-INSERT INTO `instructor` (`User_ID`, `Department`) VALUES
+INSERT INTO `INSTRUCTOR` (`User_ID`, `Department`) VALUES
   (1, 'Computer Science'),
   (2, 'Computer Science'),
   (3, 'Software Engineering'),
@@ -1354,7 +1370,7 @@ INSERT INTO `instructor` (`User_ID`, `Department`) VALUES
   (13, 'Software Engineering'),
   (14, 'Network Security'),
   (15, 'Computer Engineering');
-INSERT INTO `student` (`User_ID`, `Enrollment_year`) VALUES
+INSERT INTO `STUDENT` (`User_ID`, `Enrollment_year`) VALUES
   (101, 2023),
   (102, 2023),
   (103, 2023),
@@ -1375,7 +1391,7 @@ INSERT INTO `student` (`User_ID`, `Enrollment_year`) VALUES
   (118, 2023),
   (119, 2024),
   (120, 2023);
-INSERT INTO `user_phone` (`Phone`, `User_ID`) VALUES
+INSERT INTO `USER_PHONE` (`Phone`, `User_ID`) VALUES
   ('+84901000001', 1),
   ('+84901000002', 2),
   ('+84901000003', 3),
@@ -1415,7 +1431,7 @@ INSERT INTO `user_phone` (`Phone`, `User_ID`) VALUES
   ('02837244002', 2),
   ('+84988888101', 101);
 
-INSERT INTO `course` (`Course_ID`, `CName`, `Credits`) VALUES
+INSERT INTO `COURSE` (`Course_ID`, `CName`, `Credits`) VALUES
   (1, 'Principles of Database Management', 4),
   (2, 'Object-Oriented Programming', 4),
   (3, 'Data Structures and Algorithms', 4),
@@ -1431,7 +1447,7 @@ INSERT INTO `course` (`Course_ID`, `CName`, `Credits`) VALUES
   (13, 'Mobile Application Development', 3),
   (14, 'Distributed Systems', 3),
   (15, 'Data Mining', 3);
-INSERT INTO `requires` (`Prerequisite_ID`, `Advanced_ID`) VALUES
+INSERT INTO `REQUIRES` (`Prerequisite_ID`, `Advanced_ID`) VALUES
   (7, 3),
   (2, 3),
   (3, 1),
@@ -1447,7 +1463,7 @@ INSERT INTO `requires` (`Prerequisite_ID`, `Advanced_ID`) VALUES
   (4, 12),
   (1, 15),
   (10, 15);
-INSERT INTO `topic` (`Topic_ID`, `Content`) VALUES
+INSERT INTO `TOPIC` (`Topic_ID`, `Content`) VALUES
   (1, 'ER & EER Conceptual Modeling'),
   (2, 'Relational Algebra & Calculus'),
   (3, 'SQL Joins, Grouping & Subqueries'),
@@ -1466,7 +1482,7 @@ INSERT INTO `topic` (`Topic_ID`, `Content`) VALUES
   (16, 'Supervised & Unsupervised Learning'),
   (17, 'Symmetric & Public-Key Cryptography'),
   (18, 'Distributed Consensus & Cloud Scaling');
-INSERT INTO `covers` (`Course_ID`, `Topic_ID`) VALUES
+INSERT INTO `COVERS` (`Course_ID`, `Topic_ID`) VALUES
   (1, 1),
   (1, 2),
   (1, 3),
@@ -1492,7 +1508,7 @@ INSERT INTO `covers` (`Course_ID`, `Topic_ID`) VALUES
   (14, 18),
   (15, 4),
   (15, 16);
-INSERT INTO `teach` (`User_ID`, `Course_ID`, `Semester`) VALUES
+INSERT INTO `TEACH` (`User_ID`, `Course_ID`, `Semester`) VALUES
   (1, 1, '2025-S2'),
   (1, 1, '2026-S1'),
   (2, 1, '2026-S1'),
@@ -1514,7 +1530,7 @@ INSERT INTO `teach` (`User_ID`, `Course_ID`, `Semester`) VALUES
   (4, 5, '2025-S2'),
   (6, 10, '2025-S2');
 
-INSERT INTO `question` (`Quest_ID`, `Content`, `Difficulty`, `Topic_ID`, `User_ID`) VALUES
+INSERT INTO `QUESTION` (`Quest_ID`, `Content`, `Difficulty`, `Topic_ID`, `User_ID`) VALUES
   (1, 'Which SQL clause filters grouped rows after aggregation?', 2, 3, 1),
   (2, 'Which normal form eliminates partial dependencies on composite keys?', 2, 4, 1),
   (3, 'In an EER diagram, what does a double line to a relationship represent?', 2, 1, 2),
@@ -1550,7 +1566,7 @@ INSERT INTO `question` (`Quest_ID`, `Content`, `Difficulty`, `Topic_ID`, `User_I
   (33, 'Explain overfitting and two techniques to mitigate it.', 3, 16, 10),
   (34, 'Compare symmetric AES and asymmetric RSA key distribution.', 3, 17, 11),
   (35, 'Explain the CAP theorem trade-off during network partitions.', 4, 18, 12);
-INSERT INTO `mcq` (`Quest_ID`) VALUES
+INSERT INTO `MCQ` (`Quest_ID`) VALUES
   (1),
   (2),
   (3),
@@ -1571,7 +1587,7 @@ INSERT INTO `mcq` (`Quest_ID`) VALUES
   (18),
   (19),
   (20);
-INSERT INTO `short_answer` (`Quest_ID`, `Answer_key`) VALUES
+INSERT INTO `SHORT_ANSWER` (`Quest_ID`, `Answer_key`) VALUES
   (21, 'Superkey closure equals R and no proper subset is a superkey.'),
   (22, 'Phone is multivalued; extracting it preserves 1NF atomicity.'),
   (23, 'Double nested NOT EXISTS.'),
@@ -1587,7 +1603,7 @@ INSERT INTO `short_answer` (`Quest_ID`, `Answer_key`) VALUES
   (33, 'Model memorizes noise; use regularization or cross-validation.'),
   (34, 'AES uses shared secret key; RSA uses public/private key pair.'),
   (35, 'Partition forces choosing between Consistency and Availability.');
-INSERT INTO `options` (`Option_no`, `Quest_ID`, `Op_Content`, `Bool_Correct`) VALUES
+INSERT INTO `OPTIONS` (`Option_no`, `Quest_ID`, `Op_Content`, `Bool_Correct`) VALUES
   (1, 1, 'WHERE', 0),
   (2, 1, 'HAVING', 1),
   (3, 1, 'ORDER BY', 0),
@@ -1669,23 +1685,23 @@ INSERT INTO `options` (`Option_no`, `Quest_ID`, `Op_Content`, `Bool_Correct`) VA
   (3, 20, 'Option 3 for Q20', 0),
   (4, 20, 'Option 4 for Q20 (Correct)', 1);
 
-INSERT INTO `examination` (`Exam_ID`, `Title`, `Exam_date`, `Duration`, `Pass_mark`, `Max_attempts`, `Course_ID`) VALUES
-  (1, 'PDM Midterm Examination', '2026-10-20 09:00:00', 60, 50.00, 3, 1),
-  (2, 'PDM Normalization Quiz', '2026-11-10 09:00:00', 45, 60.00, 2, 1),
-  (3, 'PDM Final Comprehensive', '2026-12-15 09:00:00', 90, 50.00, 2, 1),
-  (4, 'OOP Midterm', '2026-10-22 13:30:00', 60, 50.00, 2, 2),
-  (5, 'DSA Midterm', '2026-10-24 08:00:00', 75, 50.00, 2, 3),
-  (6, 'Computer Networks Quiz', '2026-10-26 10:00:00', 45, 55.00, 2, 4),
-  (7, 'Operating Systems Midterm', '2026-10-28 14:00:00', 60, 50.00, 2, 5),
-  (8, 'Software Engineering Test', '2026-11-01 09:00:00', 60, 50.00, 2, 6),
-  (9, 'Discrete Math Exam', '2026-11-03 08:00:00', 90, 50.00, 1, 7),
-  (10, 'Web Dev Practical Quiz', '2026-11-05 15:00:00', 60, 60.00, 2, 8),
-  (11, 'AI Search Assessment', '2026-11-07 09:00:00', 60, 50.00, 2, 9),
-  (12, 'Machine Learning Exam', '2026-11-09 13:00:00', 75, 50.00, 2, 10),
-  (13, 'InfoSec Midterm', '2026-11-11 10:00:00', 60, 55.00, 2, 11),
-  (14, 'Cloud Architecture Quiz', '2026-11-13 14:00:00', 45, 50.00, 2, 12),
-  (15, 'Mobile Dev Evaluation', '2026-11-15 09:00:00', 60, 50.00, 2, 13);
-INSERT INTO `paper` (`PaperKey`, `PaperID`, `Exam_ID`) VALUES
+INSERT INTO `EXAMINATION` (`Exam_ID`, `Title`, `Exam_date`, `Duration`, `Pass_mark`, `Max_attempts`, `Course_ID`, `Status`) VALUES
+  (1, 'PDM Midterm Examination', '2026-10-20 09:00:00', 60, 50.00, 3, 1, 'PUBLISHED'),
+  (2, 'PDM Normalization Quiz', '2026-11-10 09:00:00', 45, 60.00, 2, 1, 'PUBLISHED'),
+  (3, 'PDM Final Comprehensive', '2026-12-15 09:00:00', 90, 50.00, 2, 1, 'PUBLISHED'),
+  (4, 'OOP Midterm', '2026-10-22 13:30:00', 60, 50.00, 2, 2, 'PUBLISHED'),
+  (5, 'DSA Midterm', '2026-10-24 08:00:00', 75, 50.00, 2, 3, 'PUBLISHED'),
+  (6, 'Computer Networks Quiz', '2026-10-26 10:00:00', 45, 55.00, 2, 4, 'PUBLISHED'),
+  (7, 'Operating Systems Midterm', '2026-10-28 14:00:00', 60, 50.00, 2, 5, 'PUBLISHED'),
+  (8, 'Software Engineering Test', '2026-11-01 09:00:00', 60, 50.00, 2, 6, 'PUBLISHED'),
+  (9, 'Discrete Math Exam', '2026-11-03 08:00:00', 90, 50.00, 1, 7, 'PUBLISHED'),
+  (10, 'Web Dev Practical Quiz', '2026-11-05 15:00:00', 60, 60.00, 2, 8, 'PUBLISHED'),
+  (11, 'AI Search Assessment', '2026-11-07 09:00:00', 60, 50.00, 2, 9, 'PUBLISHED'),
+  (12, 'Machine Learning Exam', '2026-11-09 13:00:00', 75, 50.00, 2, 10, 'PUBLISHED'),
+  (13, 'InfoSec Midterm', '2026-11-11 10:00:00', 60, 55.00, 2, 11, 'PUBLISHED'),
+  (14, 'Cloud Architecture Quiz', '2026-11-13 14:00:00', 45, 50.00, 2, 12, 'PUBLISHED'),
+  (15, 'Mobile Dev Evaluation', '2026-11-15 09:00:00', 60, 50.00, 2, 13, 'PUBLISHED');
+INSERT INTO `PAPER` (`PaperKey`, `PaperID`, `Exam_ID`) VALUES
   (1, 1, 1),
   (2, 2, 1),
   (3, 1, 2),
@@ -1704,7 +1720,7 @@ INSERT INTO `paper` (`PaperKey`, `PaperID`, `Exam_ID`) VALUES
   (16, 1, 13),
   (17, 1, 14),
   (18, 1, 15);
-INSERT INTO `exam_question_marks` (`Exam_ID`, `Quest_ID`, `Marks`) VALUES
+INSERT INTO `EXAM_QUESTION_MARKS` (`Exam_ID`, `Quest_ID`, `Marks`) VALUES
   (1, 1, 10.00),
   (1, 2, 10.00),
   (1, 3, 10.00),
@@ -1744,7 +1760,7 @@ INSERT INTO `exam_question_marks` (`Exam_ID`, `Quest_ID`, `Marks`) VALUES
   (14, 35, 20.00),
   (15, 20, 10.00),
   (15, 29, 20.00);
-INSERT INTO `paper_question` (`PaperKey`, `Quest_ID`, `QuestionOrder`) VALUES
+INSERT INTO `PAPER_QUESTION` (`PaperKey`, `Quest_ID`, `QuestionOrder`) VALUES
   (1, 1, 1),
   (1, 2, 2),
   (1, 3, 3),
@@ -1795,7 +1811,7 @@ INSERT INTO `paper_question` (`PaperKey`, `Quest_ID`, `QuestionOrder`) VALUES
   (18, 20, 1),
   (18, 29, 2);
 
-INSERT INTO `registration` (`RegisID`, `RegisDate`, `User_ID`, `Exam_ID`) VALUES
+INSERT INTO `REGISTRATION` (`RegisID`, `RegisDate`, `User_ID`, `Exam_ID`) VALUES
   (1, '2026-10-15 10:01:00', 101, 1),
   (2, '2026-10-15 10:02:00', 102, 1),
   (3, '2026-10-15 10:03:00', 103, 1),
@@ -1832,7 +1848,7 @@ INSERT INTO `registration` (`RegisID`, `RegisDate`, `User_ID`, `Exam_ID`) VALUES
   (34, '2026-10-18 08:00:00', 104, 13),
   (35, '2026-10-18 08:00:00', 105, 14),
   (36, '2026-10-18 08:00:00', 106, 15);
-INSERT INTO `attempt` (`Attempt_no`, `RegisID`, `StartTime`, `EndTime`, `PaperKey`) VALUES
+INSERT INTO `ATTEMPT` (`Attempt_no`, `RegisID`, `StartTime`, `EndTime`, `PaperKey`) VALUES
   (1, 1, '2026-10-20 09:00:00', '2026-10-20 09:40:00', 1),
   (2, 1, '2026-10-20 10:00:00', '2026-10-20 10:41:00', 1),
   (1, 2, '2026-10-20 10:00:00', '2026-10-20 10:42:00', 1),
@@ -1868,7 +1884,7 @@ INSERT INTO `attempt` (`Attempt_no`, `RegisID`, `StartTime`, `EndTime`, `PaperKe
   (1, 34, '2026-11-12 09:00:00', '2026-11-12 09:45:00', 16),
   (1, 35, '2026-11-12 09:00:00', '2026-11-12 09:45:00', 17),
   (1, 36, '2026-11-12 09:00:00', '2026-11-12 09:45:00', 18);
-INSERT INTO `answer` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`) VALUES
+INSERT INTO `ANSWER` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAwarded`) VALUES
   (1, 1, 1, NULL, 0.00),
   (2, 1, 1, NULL, 0.00),
   (3, 1, 1, NULL, 0.00),
@@ -1985,7 +2001,7 @@ INSERT INTO `answer` (`Quest_ID`, `Attempt_no`, `RegisID`, `AnswerText`, `MarkAw
   (35, 1, 35, 'Student response for Q35 on R35', 17.00),
   (20, 1, 36, NULL, 10.00),
   (29, 1, 36, 'Student response for Q29 on R36', 17.00);
-INSERT INTO `select_table` (`Option_no`, `Quest_ID`, `Attempt_no`, `RegisID`) VALUES
+INSERT INTO `SELECT_TABLE` (`Option_no`, `Quest_ID`, `Attempt_no`, `RegisID`) VALUES
   (1, 1, 1, 1),
   (2, 2, 1, 1),
   (1, 3, 1, 1),
