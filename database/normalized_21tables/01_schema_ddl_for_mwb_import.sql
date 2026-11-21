@@ -9,7 +9,7 @@
 -- IT079IU - Principles of Database Management (Sem 1, 2026-2027)
 -- Group 06 | Topic 20: Online Examination System
 -- Target DBMS: MySQL 8.0.16+ / MySQL 8.4 (InnoDB, utf8mb4_0900_ai_ci)
--- Schema Design: 21 Normalized Relations (All in BCNF; Business Rules Master v2 BR-01..BR-50)
+-- Schema Design: 21 Normalized Relations (All in BCNF; Business Rules BR-01..BR-52)
 -- Naming convention: ALL TABLE names are UPPER CASE (MySQL on Linux/Aiven is case-sensitive,
 --   lower_case_table_names=0). Column, view, trigger and procedure names keep their own case.
 -- Revision: + EXAMINATION.Status (DRAFT/PUBLISHED), Exam_date NULLable (= not scheduled yet).
