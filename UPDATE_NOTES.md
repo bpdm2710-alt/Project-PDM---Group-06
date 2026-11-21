@@ -293,3 +293,12 @@ Test cập nhật theo quy tắc tiên quyết: `EndToEndTest` (sv104 bị chặ
 **Kiểm thử (MySQL 8, server UTC như Aiven):** kịch bản demo 17/17 (cả khi máy để múi giờ New York); tính năng mới 11/11;
 đăng nhập 6/6; luồng sinh viên 11/11; chấm tay 8/8; ghi dữ liệu giảng viên 7/7; Reports 11/11; 03_verify 39/39;
 `StudentResultsTestRunner` 56/56; JUnit 14/14.
+
+## Bước 12 – Kịch bản demo mới + README cho thành viên
+
+- `README.md` viết lại: clone → truststore → `application.properties` → Workbench → chạy seed demo → chạy app,
+  bảng tài khoản, xử lý lỗi, danh sách file SQL, build/test, cấu trúc project.
+- `docs/DEMO_SCRIPT.md`: kịch bản demo A–E (sv103 làm bài/Resume, sv101 hết giờ tự đóng, inst01 chấm/Reports/
+  Statistics/Publish/Question bank, sv103 xem 55/60, sv104 bị chặn môn tiên quyết – sv106 đăng ký được).
+- `database/demo/03_demo_seed.sql`: `DEMO - Open now` có thêm **Paper 2** (cùng câu hỏi, thứ tự khác) để demo xoay vòng đề.
+  Kiểm thử: chạy seed 2 lần liên tiếp OK; kịch bản demo 17/17; tính năng mới 11/11.
