@@ -72,7 +72,7 @@ public class InstructorServiceImpl implements InstructorService {
     public List<ExamRow> listExams(int courseId) throws ServiceException {
         return Db.run(conn -> {
             checkTeaches(conn, courseId);
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = Db.now(conn);
             List<ExamRow> out = new ArrayList<>();
             for (ExamDAO.ListRow r : ExamDAO.list(conn, courseId)) {
                 LocalDateTime date = toLdt(r.date());
@@ -108,7 +108,7 @@ public class InstructorServiceImpl implements InstructorService {
                 papers.add(new PaperDetail(paperId, paperId, qs, total));
             });
             return new ExamDetail(examId, h.courseId(), h.title(), date, h.duration(), h.passMark(),
-                    h.maxAttempts(), status(h.status(), date, h.duration(), LocalDateTime.now()), papers);
+                    h.maxAttempts(), status(h.status(), date, h.duration(), Db.now(conn)), papers);
         });
     }
 
@@ -410,7 +410,7 @@ public class InstructorServiceImpl implements InstructorService {
             checkTeaches(conn, courseId);
 
             int completed = 0;
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = Db.now(conn);
             for (StatsDAO.ExamTime t : StatsDAO.examTimes(conn, courseId)) {
                 if (status(t.status(), toLdt(t.date()), t.duration(), now) == ExamStatus.COMPLETED) {
                     completed++;

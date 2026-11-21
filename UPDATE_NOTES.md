@@ -171,13 +171,12 @@ Chạy lại: luồng sinh viên 11/11, chấm tay 8/8, đăng nhập 6/6, 03_ve
    view: chạy đoạn `CREATE OR REPLACE VIEW vw_AverageScoreByTopic` ở cuối `database/queries/PDMProjectQuery.sql`.
    Muốn demo: chạy `database/demo/03_demo_seed.sql`.
 
-## Còn lại (chưa làm, theo báo cáo PDF)
-- #8 giờ thi lấy theo đồng hồ máy client (`LocalDateTime.now()`); nên dùng `NOW()` của DB hoặc cố định
-  `connectionTimeZone`. Seed demo đã tạm xử lý bằng `SET time_zone = '+07:00'`.
-- #9 nhiều paper dùng chung điểm theo exam; sinh viên luôn nhận paper PaperID nhỏ nhất -> ghi vào báo cáo.
+## Còn lại (theo báo cáo PDF)
+- ~~#8 giờ thi theo đồng hồ máy client~~ -> **đã làm ở Bước 11** (đồng hồ DB).
+- ~~#9 nhiều paper~~ -> **đã làm ở Bước 11** (xoay vòng paper). Điểm theo exam (EXAM_QUESTION_MARKS) là thiết kế của schema 21 bảng.
 - #10 kiểm tra quyền trong service bỏ qua khi không có Session (chấp nhận cho test).
-- #11 REQUIRES chưa áp dụng khi đăng ký thi; `MAX(Semester)` so chuỗi; `deleteQuestion` chưa kiểm tra `attemptedCount`.
-- #16 đổi mật khẩu Aiven nếu zip cũ từng gửi ra ngoài; dùng user DB quyền hạn chế. Chưa có connection pool.
+- ~~#11 REQUIRES chưa áp dụng khi đăng ký thi~~ -> **đã làm ở Bước 11**. Còn: `MAX(Semester)` so chuỗi; `deleteQuestion` chưa kiểm tra `attemptedCount`.
+- ~~#16 connection pool~~ -> **đã làm ở Bước 11** (HikariCP). Mật khẩu Aiven nhóm đã đổi.
 
 ---
 
@@ -259,3 +258,38 @@ các DAO cũ đã dán bản sửa (`DAO/AnswerDAO`, `AttemptDAO`, `PaperDAO`, `
 **Kiểm thử trên chính project đã ghép (DB = 02 của nhóm, MySQL 8 Linux):** biên dịch sạch toàn bộ main + test;
 `StudentResultsTestRunner` 56/56; đăng nhập 6/6; luồng sinh viên 11/11; chấm tay 8/8; tạo exam/câu hỏi/paper 7/7;
 Reports 11/11 khớp file .sql; JUnit 14/14; DAO cũ đọc đúng dữ liệu (15 course, 18 topic, 19 exam, ...).
+
+---
+
+## Bước 11 – Đồng hồ DB, xoay vòng paper, môn tiên quyết, connection pool
+
+**#8 – Giờ thi theo đồng hồ DATABASE, không theo máy người dùng.**
+- MỚI `Db.now(conn)` = `SELECT NOW()`; mọi chỗ trước đây dùng `LocalDateTime.now()` trong `StudentServiceImpl` /
+  `InstructorServiceImpl` (mở/đóng exam, đăng ký, bắt đầu, lưu, nộp, tự đóng bài quá giờ, trạng thái exam) dùng giờ DB.
+- Mỗi kết nối chạy `SET time_zone = '+07:00'` (khóa `db.timezone`, mặc định +07:00) -> `NOW()` cùng múi giờ với
+  `Exam_date` / `StartTime` dù server Aiven chạy UTC. Đồng hồ đếm ngược khi làm bài vốn tính theo số giây server trả về.
+- Kiểm chứng: server UTC + máy chạy app để múi giờ New York -> **code cũ**: sinh viên thấy `DEMO - Open now` là
+  UPCOMING, "This exam is not open yet"; **code mới**: toàn bộ kịch bản demo PASS.
+
+**#9 – Nhiều paper trong một exam.** `AttemptDAO.pickPaperKey` (thay `firstPaperKey`): chỉ chọn paper có câu hỏi;
+ưu tiên paper sinh viên đó dùng ít nhất (thi lại -> đề khác); hòa thì xoay vòng theo số lượt của cả exam (người sau
+nhận đề khác người trước). Điểm từng câu vẫn theo exam (`EXAM_QUESTION_MARKS`) – đúng thiết kế chuẩn hóa: cùng một
+câu trong exam có cùng điểm ở mọi paper. Kiểm chứng: 3 sinh viên -> paper 1, 2, 1; thi lại -> paper 2; paper rỗng không bao giờ được giao.
+
+**#11 – Môn tiên quyết (REQUIRES) khi đăng ký thi.** `StudentDAO.missingPrerequisites` + kiểm tra trong
+`StudentServiceImpl.registerForExam`: phải **đậu** (bài đã chấm xong, % >= Pass_mark, view `v_attempt_scores`)
+ít nhất 1 exam của **mỗi course tiên quyết trực tiếp**; course tiên quyết chưa có exam PUBLISHED thì bỏ qua.
+Thông báo: "You must pass Data Structures and Algorithms before registering for this exam (prerequisite)."
+Trong seed: PDM (course 1) yêu cầu DSA (course 3); chỉ **sv106, sv111** đã đậu DSA.
+
+**Connection pool – HikariCP 5.1.0** (+ `slf4j-nop`, trong `pom.xml`). `DatabaseConnection.getConnection()` giữ nguyên
+cách dùng (try-with-resources trả kết nối về pool). Tối đa 5 kết nối (`db.pool.size`), chờ tối đa 10 s, làm mới mỗi
+20 phút; sai URL/mật khẩu báo lỗi ngay "Cannot connect to the database: ...". Kiểm chứng: 40 truy vấn dùng lại 1 kết nối.
+**Sau khi chép: Maven -> Reload project** để tải HikariCP.
+
+`StudentResultService` (code cũ) cũng lấy giờ từ DB.
+Test cập nhật theo quy tắc tiên quyết: `EndToEndTest` (sv104 bị chặn, sv106 đăng ký được).
+
+**Kiểm thử (MySQL 8, server UTC như Aiven):** kịch bản demo 17/17 (cả khi máy để múi giờ New York); tính năng mới 11/11;
+đăng nhập 6/6; luồng sinh viên 11/11; chấm tay 8/8; ghi dữ liệu giảng viên 7/7; Reports 11/11; 03_verify 39/39;
+`StudentResultsTestRunner` 56/56; JUnit 14/14.

@@ -237,6 +237,35 @@ public final class StudentDAO {
      * Inserts the registration. A duplicate (User_ID, Exam_ID) surfaces as an SQLException with
      * error code 1062; a registration after Exam_date is refused by a trigger (SQLSTATE 45000).
      */
+    /**
+     * Direct prerequisites (REQUIRES) of the exam's course that the student has NOT passed yet.
+     * "Passed" = at least one fully graded attempt with IsPassed = 1 (view v_attempt_scores) in an
+     * exam of the prerequisite course. A prerequisite course without any PUBLISHED exam cannot be
+     * passed, so it is not required.
+     * @return names of the missing courses, empty when the student may register.
+     */
+    public static List<String> missingPrerequisites(Connection c, int studentId, int examId) throws SQLException {
+        List<String> out = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT pc.CName FROM EXAMINATION e " +
+                "JOIN REQUIRES rq ON rq.Advanced_ID = e.Course_ID " +
+                "JOIN COURSE pc ON pc.Course_ID = rq.Prerequisite_ID " +
+                "WHERE e.Exam_ID = ? " +
+                "AND EXISTS (SELECT 1 FROM EXAMINATION pe WHERE pe.Course_ID = rq.Prerequisite_ID AND pe.Status = 'PUBLISHED') " +
+                "AND NOT EXISTS (SELECT 1 FROM v_attempt_scores v JOIN EXAMINATION pe ON pe.Exam_ID = v.Exam_ID " +
+                "                WHERE pe.Course_ID = rq.Prerequisite_ID AND v.User_ID = ? AND v.IsPassed = 1) " +
+                "ORDER BY pc.CName")) {
+            ps.setInt(1, examId);
+            ps.setInt(2, studentId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(rs.getString(1));
+                }
+            }
+        }
+        return out;
+    }
+
     public static int register(Connection c, int studentId, int examId, Timestamp now) throws SQLException {
         int id = Jdbc.nextId(c, "REGISTRATION", "RegisID"); // schema has no AUTO_INCREMENT
         Jdbc.exec(c, "INSERT INTO REGISTRATION (RegisID, RegisDate, User_ID, Exam_ID) VALUES (?, ?, ?, ?)",

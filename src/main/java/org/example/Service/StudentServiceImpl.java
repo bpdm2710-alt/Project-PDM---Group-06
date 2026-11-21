@@ -99,7 +99,7 @@ public class StudentServiceImpl implements StudentService {
             CourseFilter f = filter == null ? CourseFilter.none() : filter;
             List<StudentDAO.CourseRow> rows = StudentDAO.listCourses(conn, studentId,
                     scope == CourseScope.MY, f.keyword(), f.topic(), f.semester(),
-                    Timestamp.valueOf(LocalDateTime.now()));
+                    Timestamp.valueOf(Db.now(conn)));
             List<CourseCard> cards = new ArrayList<>();
             if (rows.isEmpty()) {
                 return cards;
@@ -131,13 +131,20 @@ public class StudentServiceImpl implements StudentService {
                 throw new ServiceException(ServiceException.Kind.NOT_FOUND, "Exam not found.");
             }
             checkOwner(studentId);
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = Db.now(conn);
             // The database rule is RegisDate <= Exam_date: registration closes when the exam starts.
             if (w.date() != null && now.isAfter(w.date().toLocalDateTime())) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "Registration is closed: this exam has already started.");
             }
             loadProfile(conn, studentId); // NOT_FOUND when the id is not a student
+            // REQUIRES: every direct prerequisite course must have been passed first.
+            List<String> missing = StudentDAO.missingPrerequisites(conn, studentId, examId);
+            if (!missing.isEmpty()) {
+                throw new ServiceException(ServiceException.Kind.CONFLICT,
+                        "You must pass " + String.join(", ", missing)
+                                + " before registering for this exam (prerequisite).");
+            }
             try {
                 StudentDAO.register(conn, studentId, examId, Timestamp.valueOf(now.withNano(0)));
             } catch (SQLException e) {
@@ -162,7 +169,7 @@ public class StudentServiceImpl implements StudentService {
         return Db.run(conn -> Db.tx(conn, c -> {
             AttemptDAO.RegInfo reg = loadReg(c, regisId);
             checkOwner(reg.ownerId());
-            LocalDateTime now = LocalDateTime.now().withNano(0);
+            LocalDateTime now = Db.now(c);
             LocalDateTime date = toLdt(reg.date());
 
             // 1. Resume the unfinished attempt (if its time has not run out).
@@ -189,7 +196,7 @@ public class StudentServiceImpl implements StudentService {
             if (date != null && now.isAfter(date.plusMinutes(reg.duration()))) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT, "This exam is already closed.");
             }
-            Integer paperKey = AttemptDAO.firstPaperKey(c, reg.examId());
+            Integer paperKey = AttemptDAO.pickPaperKey(c, reg.examId(), regisId);
             if (paperKey == null) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT, "This exam has no paper yet.");
             }
@@ -209,7 +216,7 @@ public class StudentServiceImpl implements StudentService {
                 throw new ServiceException(ServiceException.Kind.CONFLICT,
                         "This attempt has already been submitted.");
             }
-            if (LocalDateTime.now().isAfter(at.start().toLocalDateTime().plusMinutes(at.duration())
+            if (Db.now(c).isAfter(at.start().toLocalDateTime().plusMinutes(at.duration())
                     .plusSeconds(SAVE_GRACE_SECONDS))) {
                 throw new ServiceException(ServiceException.Kind.CONFLICT, "Time is up for this attempt.");
             }
@@ -252,7 +259,7 @@ public class StudentServiceImpl implements StudentService {
             AttemptDAO.Row at = loadAttempt(c, key, true); // row lock: no double submit
             checkOwner(at.ownerId());
             if (at.inProgress()) {
-                gradeAndClose(c, key.regisId(), key.attemptNo(), LocalDateTime.now().withNano(0));
+                gradeAndClose(c, key.regisId(), key.attemptNo(), Db.now(c));
             } // already submitted: just return the result again (safe to call twice)
             List<AttemptResult> r = toResults(AttemptDAO.finishedOne(c, key.regisId(), key.attemptNo()));
             if (r.isEmpty()) {
@@ -281,7 +288,7 @@ public class StudentServiceImpl implements StudentService {
 
     private static List<ExamCard> loadExamCards(Connection conn, int studentId, Integer courseId,
                                                 Integer examId, boolean registeredOnly) throws SQLException {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = Db.now(conn);
         List<ExamCard> cards = new ArrayList<>();
         for (StudentDAO.ExamCardRow r : StudentDAO.examCards(conn, studentId, courseId, examId, registeredOnly)) {
             boolean registered = r.regisId() != null;
@@ -407,7 +414,7 @@ public class StudentServiceImpl implements StudentService {
             AttemptDAO.InProgress open = AttemptDAO.findInProgress(c, regisId);
             if (open != null) {
                 LocalDateTime start = open.start().toLocalDateTime();
-                if (secondsLeft(start, reg.duration(), LocalDateTime.now().withNano(0)) == 0) {
+                if (secondsLeft(start, reg.duration(), Db.now(c)) == 0) {
                     gradeAndClose(c, regisId, open.attemptNo(), start.plusMinutes(reg.duration()));
                 }
             }
@@ -423,7 +430,7 @@ public class StudentServiceImpl implements StudentService {
     private static void closeExpiredAttemptsOf(int studentId) {
         try {
             Db.run(conn -> Db.tx(conn, c -> {
-                LocalDateTime now = LocalDateTime.now().withNano(0);
+                LocalDateTime now = Db.now(c);
                 for (AttemptDAO.OpenAttempt o : AttemptDAO.openAttemptsOfStudent(c, studentId)) {
                     LocalDateTime start = o.start().toLocalDateTime();
                     if (secondsLeft(start, o.duration(), now) > 0) {

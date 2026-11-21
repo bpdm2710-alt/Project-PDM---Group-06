@@ -30,6 +30,10 @@ Lưu ý schema: tên bảng VIẾT HOA; chỉ `PAPER.PaperKey` là AUTO_INCREMEN
 | Sinh viên (ID 101–120) | `sv101@student.hcmiu.edu.vn` … `sv120@student.hcmiu.edu.vn` | `Stu@123` |
 
 Course 1 (PDM) do `inst01`, `inst02` dạy. Sau `demo/03_demo_seed.sql`: `sv101`–`sv103` làm được ngay exam `DEMO - Open now`.
+PDM yêu cầu đậu **Data Structures and Algorithms** trước (bảng `REQUIRES`): trong seed chỉ `sv106`, `sv111` đã đậu,
+nên `sv106` đăng ký được `DEMO - Upcoming`, còn `sv104` bị chặn (dùng để demo môn tiên quyết).
+
+Giờ thi lấy theo **đồng hồ của DB** (múi giờ `db.timezone`, mặc định +07:00), không theo máy người dùng.
 
 ### Build, test, đóng gói
 * `mvn test` – unit test (không cần DB).

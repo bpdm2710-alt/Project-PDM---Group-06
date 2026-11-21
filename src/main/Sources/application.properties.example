@@ -10,3 +10,7 @@ db.ssl.truststore.password= your truststore password
 
 -- read readme to create truststore and truststore password
 
+# Optional (defaults shown). db.timezone = time zone of Exam_date / StartTime values; the app uses the
+# DATABASE clock in this zone, not the clock of the user's PC. db.pool.size = max open connections.
+# db.timezone=+07:00
+# db.pool.size=5

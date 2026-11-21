@@ -113,10 +113,18 @@ class EndToEndTest {
     @Test
     @Order(4)
     void registerForUpcomingExam() throws Exception {
-        Session.start(AUTH.login("sv101@student.hcmiu.edu.vn", "Stu@123"));
-        ExamCard up = STUDENT.listCourseExams(101, 1).stream().filter(e -> e.title().equals("DEMO - Upcoming"))
+        // PDM (course 1) requires Data Structures and Algorithms (REQUIRES 3 -> 1).
+        Session.start(AUTH.login("sv104@student.hcmiu.edu.vn", "Stu@123"));
+        ExamCard blocked = STUDENT.listCourseExams(104, 1).stream().filter(e -> e.title().equals("DEMO - Upcoming"))
                 .findFirst().orElseThrow();
-        ExamCard reg = STUDENT.registerForExam(101, up.examId());
+        ServiceException pre = assertThrows(ServiceException.class, () -> STUDENT.registerForExam(104, blocked.examId()));
+        assertTrue(pre.getMessage().contains("Data Structures and Algorithms"), pre.getMessage());
+
+        // sv106 passed DSA in the seed -> may register
+        Session.start(AUTH.login("sv106@student.hcmiu.edu.vn", "Stu@123"));
+        ExamCard up = STUDENT.listCourseExams(106, 1).stream().filter(e -> e.title().equals("DEMO - Upcoming"))
+                .findFirst().orElseThrow();
+        ExamCard reg = STUDENT.registerForExam(106, up.examId());
         assertEquals(ExamState.UPCOMING, reg.state());
         ServiceException e = assertThrows(ServiceException.class, () -> STUDENT.startAttempt(reg.regisId()));
         assertEquals(ServiceException.Kind.CONFLICT, e.getKind());

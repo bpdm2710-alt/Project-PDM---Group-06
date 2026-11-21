@@ -3,7 +3,10 @@ package org.example.Service;
 import org.example.util.DatabaseConnection;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 
 /** Small JDBC plumbing shared by the service implementations. */
 final class Db {
@@ -31,6 +34,21 @@ final class Db {
     }
 
     /** Runs the work in one transaction: commit on success, rollback on any failure. */
+    /**
+     * The current time from the DATABASE clock (SELECT NOW()), not from the user's PC. Every
+     * connection runs with session time_zone = db.timezone (default +07:00, see DatabaseConnection),
+     * so the value is in the same time zone as the stored Exam_date / StartTime values.
+     * Exam windows, timers and registration deadlines are therefore the same for every student,
+     * whatever the clock or time zone of their computer.
+     */
+    static LocalDateTime now(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SELECT NOW()");
+             ResultSet rs = ps.executeQuery()) {
+            rs.next();
+            return rs.getTimestamp(1).toLocalDateTime().withNano(0);
+        }
+    }
+
     static <T> T tx(Connection conn, Work<T> work) throws SQLException, ServiceException {
         conn.setAutoCommit(false);
         try {

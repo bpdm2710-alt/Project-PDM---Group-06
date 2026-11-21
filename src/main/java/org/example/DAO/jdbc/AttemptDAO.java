@@ -130,15 +130,48 @@ public final class AttemptDAO {
         return Jdbc.scalar(c, "SELECT COALESCE(MAX(Attempt_no), 0) FROM ATTEMPT WHERE RegisID = ?", regisId);
     }
 
-    /** PaperKey of the exam's lowest-numbered paper, or null when it has none. */
-    public static Integer firstPaperKey(Connection c, int examId) throws SQLException {
+    /**
+     * Chooses the paper for a NEW attempt when the exam has several papers:
+     *  1. only papers that have at least one question (an empty paper cannot be assigned);
+     *  2. among them, the papers this registration has used the fewest times (a retake gets a
+     *     different paper while one is left);
+     *  3. ties are broken by rotating over the exam: the k-th attempt of the exam (all students)
+     *     starts looking at paper number k mod n, so neighbours usually get different papers.
+     * Marks stay per exam (EXAM_QUESTION_MARKS), so every paper is graded with the same marks per question.
+     * @return null when the exam has no paper with questions.
+     */
+    public static Integer pickPaperKey(Connection c, int examId, int regisId) throws SQLException {
+        List<int[]> papers = new ArrayList<>(); // {PaperKey, times used by this registration}
         try (PreparedStatement ps = c.prepareStatement(
-                "SELECT PaperKey FROM PAPER WHERE Exam_ID = ? ORDER BY PaperID LIMIT 1")) {
-            ps.setInt(1, examId);
+                "SELECT p.PaperKey, (SELECT COUNT(*) FROM ATTEMPT a WHERE a.RegisID = ? AND a.PaperKey = p.PaperKey) " +
+                "FROM PAPER p WHERE p.Exam_ID = ? " +
+                "AND EXISTS (SELECT 1 FROM PAPER_QUESTION pq WHERE pq.PaperKey = p.PaperKey) " +
+                "ORDER BY p.PaperID")) {
+            ps.setInt(1, regisId);
+            ps.setInt(2, examId);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? rs.getInt(1) : null;
+                while (rs.next()) {
+                    papers.add(new int[]{rs.getInt(1), rs.getInt(2)});
+                }
             }
         }
+        if (papers.isEmpty()) {
+            return null;
+        }
+        int n = papers.size();
+        int start = Jdbc.scalar(c, "SELECT COUNT(*) FROM ATTEMPT a JOIN REGISTRATION r ON r.RegisID = a.RegisID " +
+                "WHERE r.Exam_ID = ?", examId) % n;
+        int bestUse = Integer.MAX_VALUE;
+        for (int[] p : papers) {
+            bestUse = Math.min(bestUse, p[1]);
+        }
+        for (int i = 0; i < n; i++) {
+            int[] p = papers.get((start + i) % n);
+            if (p[1] == bestUse) {
+                return p[0];
+            }
+        }
+        return papers.get(start)[0];
     }
 
     /** Starts an attempt (EndTime stays NULL). Triggers re-check the attempt cap and the paper. */

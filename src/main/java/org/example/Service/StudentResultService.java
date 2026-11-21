@@ -74,7 +74,7 @@ public class StudentResultService {
                 }
 
                 int nextNo = attemptDAO.nextAttemptNo(regisId);
-                Timestamp now = new Timestamp(System.currentTimeMillis());
+                Timestamp now = dbNow(conn);
                 Attempt attempt = new Attempt(
                         nextNo,
                         regisId,
@@ -233,7 +233,7 @@ public class StudentResultService {
                 }
 
                 BigDecimal passMark = attemptDAO.findPassMark(regisId);
-                Timestamp end = new Timestamp(System.currentTimeMillis());
+                Timestamp end = dbNow(conn);
                 // ATTEMPT stores DATETIME without fractional seconds, so the
                 // submitted end time must be at least one full second later.
                 long minEnd = attempt.getStartTime().getTime() + 1000L;
@@ -292,6 +292,15 @@ public class StudentResultService {
         }
 
         return new ResultSummary(count, average, best, passed);
+    }
+
+    /** Current time from the database clock (session time zone set by DatabaseConnection). */
+    private static Timestamp dbNow(Connection conn) throws SQLException {
+        try (java.sql.Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery("SELECT NOW()")) {
+            rs.next();
+            return rs.getTimestamp(1);
+        }
     }
 
     private boolean answersMatch(String answer, String answerKey) {

@@ -103,7 +103,10 @@ public interface StudentService {
     /** My exams screen: every exam the student registered for. */
     List<ExamCard> listMyExams(int studentId) throws ServiceException;
 
-    /** @throws ServiceException CONFLICT if already registered. */
+    /**
+     * @throws ServiceException CONFLICT if already registered, if the exam has started, or if a
+     *         prerequisite course (REQUIRES) of the exam's course has not been passed yet.
+     */
     ExamCard registerForExam(int studentId, int examId) throws ServiceException;
 
     // ---- Taking an exam ---------------------------------------------------
